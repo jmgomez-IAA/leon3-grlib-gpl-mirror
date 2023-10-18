@@ -67,30 +67,54 @@ set_property PACKAGE_PIN AF9 [get_ports {button[4]}]
 set_property IOSTANDARD LVCMOS18 [get_ports button*]
 
 # --- GPIO PMOD0 -------------------------------------------
-set_property PACKAGE_PIN AK25 [get_ports {gpio[0]}]
-set_property PACKAGE_PIN AN21 [get_ports {gpio[1]}]
-set_property PACKAGE_PIN AH18 [get_ports {gpio[2]}]
-set_property PACKAGE_PIN AM19 [get_ports {gpio[3]}]
-set_property PACKAGE_PIN AE26 [get_ports {gpio[4]}]
-set_property PACKAGE_PIN AF25 [get_ports {gpio[5]}]
-set_property PACKAGE_PIN AE21 [get_ports {gpio[6]}]
-set_property PACKAGE_PIN AM17 [get_ports {gpio[7]}]
+#set_property PACKAGE_PIN AK25 [get_ports {gpio[0]}]
+#set_property PACKAGE_PIN AN21 [get_ports {gpio[1]}]
+#set_property PACKAGE_PIN AH18 [get_ports {gpio[2]}]
+#set_property PACKAGE_PIN AM19 [get_ports {gpio[3]}]
+#set_property PACKAGE_PIN AE26 [get_ports {gpio[4]}]
+#set_property PACKAGE_PIN AF25 [get_ports {gpio[5]}]
+#set_property PACKAGE_PIN AE21 [get_ports {gpio[6]}]
+#set_property PACKAGE_PIN AM17 [get_ports {gpio[7]}]
 
-set_property UNAVAILABLE_DURING_CALIBRATION true [get_ports {gpio[2]}]
-set_property UNAVAILABLE_DURING_CALIBRATION true [get_ports {gpio[8]}]
+#set_property UNAVAILABLE_DURING_CALIBRATION true [get_ports {gpio[2]}]
+#set_property UNAVAILABLE_DURING_CALIBRATION true [get_ports {gpio[8]}]
 
 
 # --- GPIO PMOD1 -------------------------------------------
-set_property PACKAGE_PIN AL14 [get_ports {gpio[8]}]
-set_property PACKAGE_PIN AM14 [get_ports {gpio[9]}]
-set_property PACKAGE_PIN AP16 [get_ports {gpio[10]}]
-set_property PACKAGE_PIN AP15 [get_ports {gpio[11]}]
-set_property PACKAGE_PIN AM16 [get_ports {gpio[12]}]
-set_property PACKAGE_PIN AM15 [get_ports {gpio[13]}]
-set_property PACKAGE_PIN AN18 [get_ports {gpio[14]}]
-set_property PACKAGE_PIN AN17 [get_ports {gpio[15]}]
+#set_property PACKAGE_PIN AL14 [get_ports {gpio[8]}]
+#set_property PACKAGE_PIN AM14 [get_ports {gpio[9]}]
+#set_property PACKAGE_PIN AP16 [get_ports {gpio[10]}]
+#set_property PACKAGE_PIN AP15 [get_ports {gpio[11]}]
+#set_property PACKAGE_PIN AM16 [get_ports {gpio[12]}]
+#set_property PACKAGE_PIN AM15 [get_ports {gpio[13]}]
+#set_property PACKAGE_PIN AN18 [get_ports {gpio[14]}]
+#set_property PACKAGE_PIN AN17 [get_ports {gpio[15]}]
 
 set_property IOSTANDARD LVCMOS12 [get_ports gpio*]
+
+
+# --- SPI Controller Interface -------------------------------------------
+set_property PACKAGE_PIN AP16 [get_ports {spi_miso}] 
+set_property PACKAGE_PIN AP15 [get_ports {spi_mosi}] 
+set_property PACKAGE_PIN AM16 [get_ports {spi_sel[0]}]    
+set_property PACKAGE_PIN AM15 [get_ports {spi_sel[1]}]     
+set_property PACKAGE_PIN AN18 [get_ports {spi_sel[2]}]     
+set_property PACKAGE_PIN AN17 [get_ports {spi_sck}]     
+
+set_property PACKAGE_PIN AK25 [get_ports {spi_1_miso}] 
+set_property PACKAGE_PIN AN21 [get_ports {spi_1_mosi}] 
+set_property PACKAGE_PIN AH18 [get_ports {spi_1_sel[0]}]    
+set_property PACKAGE_PIN AM19 [get_ports {spi_1_sel[1]}] 
+set_property PACKAGE_PIN AE26 [get_ports {spi_1_sck}]     
+
+set_property PACKAGE_PIN AF25 [get_ports {spi_2_miso}] 
+set_property PACKAGE_PIN AE21 [get_ports {spi_2_mosi}] 
+set_property PACKAGE_PIN AM17 [get_ports {spi_2_sel[0]}]
+set_property PACKAGE_PIN AL14 [get_ports {spi_2_sel[1]}]
+set_property PACKAGE_PIN AM14 [get_ports {spi_2_sck}]     
+
+set_property IOSTANDARD LVCMOS12 [get_ports spi*]
+
 
 # --- I2C --------------------------------------------------
 set_property PACKAGE_PIN J24 [get_ports iic_scl]
