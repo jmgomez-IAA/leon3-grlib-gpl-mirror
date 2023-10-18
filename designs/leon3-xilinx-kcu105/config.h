@@ -91,7 +91,7 @@
  */
 #define CONFIG_LEON3 1
 #undef  CONFIG_LEON4
-#define CONFIG_PROC_NUM (1)
+#define CONFIG_PROC_NUM (2)
 #undef  CONFIG_LEON_MIN
 #undef  CONFIG_LEON_GP
 #undef  CONFIG_LEON_HP

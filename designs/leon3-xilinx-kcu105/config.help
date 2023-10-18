@@ -9,7 +9,7 @@ CONFIG_SYN_INFERRED
     is capable of inferring RAMs and pads automatically.
 
   - Actel ProAsic/P/3, IGLOO/2, RTG4, PolarFire and Axcelerator FPGAs
-  - Aeroflex UT25CRH Rad-Hard 0.25 um CMOS
+  - Aeroflex UT130HBD, UT90RHBD
   - Altera: Most Altera FPGA families
   - Altera-CycloneIII: Altera Cyclone-III/IV FPGA family
   - Altera-Stratix: Altera Stratix FPGA family
@@ -19,6 +19,7 @@ CONFIG_SYN_INFERRED
   - Altera-StratixV: Altera Stratix-V FPGA family
   - ATC18: Atmel-Nantes 0.18 um rad-hard CMOS
   - NanoXploree : Brave-Medium 
+  - Lattice: Nexus
   - Quicklogic : Eclipse/E/II FPGAs
   - UMC-0.18 : UMC 0.18 um CMOS with Virtual Silicon libraries
   - Xilinx-Spartan/2/3/6: Xilinx Spartan/2/3/6 libraries
@@ -1660,11 +1661,42 @@ CONFIG_SPIMCTRL_READCMD
 
 Dummy byte
 CONFIG_SPIMCTRL_DUMMYBYTE
-  Output dummy byte after address when issuing read instruction.
+  Output 8 dummy cycles after address when issuing read instruction.
 
 Dual output
 CONFIG_SPIMCTRL_DUALOUTPUT
   Memory device supports dual output when reading data.
+
+Quad output
+CONFIG_SPIMCTRL_QUADOUTPUT
+  Memory device supports quad output when reading data.
+
+Dual input
+CONFIG_SPIMCTRL_DUALINPUT
+  Memory device supports dual input when reading data.
+
+Quad input
+CONFIG_SPIMCTRL_QUADINPUT
+  Memory device supports quad input when reading data.
+
+DSPI
+CONFIG_SPIMCTRL_DSPI
+  Enables DSPI (Dual SPI) mode. All communication with
+  the device will happen using two data lines.
+
+QSPI
+CONFIG_SPIMCTRL_QSPI
+  Enables QSPI (Quad SPI) mode. All communication with
+  the device will happen using four data lines.
+
+Dummy cycles
+CONFIG_SPIMCTRL_DUMMYCYCLES
+  Determines number of dummy cycles to be used. 
+  (Not used if DUMMYBYTE is set, then 8 cycles are always used)
+
+Extended Address
+CONFIG_SPIMCTRL_EXTADDR
+  Use 4 bytes of address instead of 3 for memory reads.
 
 Address offset
 CONFIG_SPIMCTRL_OFFSET
@@ -1684,6 +1716,9 @@ CONFIG_SPIMCTRL_ASCALER
   divisor used is two to the power of the specified value. This
   value must be at least 1.
 
+Reconfigurable configuration
+CONFIG_SPIMCTRL_RECONF
+  Enables writing to the configuration register.
 Gaisler Research SPI controller
 CONFIG_SPICTRL_ENABLE
   Say Y here to enable the SPI controller(s)

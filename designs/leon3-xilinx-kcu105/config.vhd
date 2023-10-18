@@ -24,7 +24,7 @@ package config is
   constant CFG_CLK_NOFB : integer := 0;
 -- LEON processor core
   constant CFG_LEON : integer := 3;
-  constant CFG_NCPU : integer := (1);
+  constant CFG_NCPU : integer := (2);
   constant CFG_NWIN : integer := (8);
   constant CFG_V8 : integer := 16#32# + 4*0;
   constant CFG_MAC : integer := 0;
@@ -271,8 +271,8 @@ package config is
   constant CFG_SPIMCTRL_OFFSET : integer := 16#0#;
 -- SPI controller
   constant CFG_SPICTRL_ENABLE : integer := 1;
-  constant CFG_SPICTRL_NUM : integer := (1);
-  constant CFG_SPICTRL_SLVS : integer := (1);
+  constant CFG_SPICTRL_NUM : integer := (3);
+  constant CFG_SPICTRL_SLVS : integer := (2);
   constant CFG_SPICTRL_FIFO : integer := (1);
   constant CFG_SPICTRL_SLVREG : integer := 0;
   constant CFG_SPICTRL_ODMODE : integer := 0;
