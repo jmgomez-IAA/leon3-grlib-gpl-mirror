@@ -252,7 +252,7 @@ package config is
 -- GPIO port
   constant CFG_GRGPIO_ENABLE : integer := 1;
   constant CFG_GRGPIO_IMASK : integer := 16#0000#;
-  constant CFG_GRGPIO_WIDTH : integer := (8);
+  constant CFG_GRGPIO_WIDTH : integer := (5);
 -- I2C master
   constant CFG_I2C_ENABLE : integer := 1;
 -- VGA and PS2/ interface
@@ -272,7 +272,7 @@ package config is
 -- SPI controller
   constant CFG_SPICTRL_ENABLE : integer := 1;
   constant CFG_SPICTRL_NUM : integer := (3);
-  constant CFG_SPICTRL_SLVS : integer := (2);
+  constant CFG_SPICTRL_SLVS : integer := (1);
   constant CFG_SPICTRL_FIFO : integer := (1);
   constant CFG_SPICTRL_SLVREG : integer := 0;
   constant CFG_SPICTRL_ODMODE : integer := 0;

@@ -734,9 +734,8 @@ proc menu1 {w title} {
 	$w.config.f.x0.x.menu add radiobutton -label "Actel-SmartFusion2" -variable tmpvar_0 -value "Actel-SmartFusion2" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Actel-RTG4" -variable tmpvar_0 -value "Actel-RTG4" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Actel-PolarFire" -variable tmpvar_0 -value "Actel-PolarFire" -command "update_active"
-	$w.config.f.x0.x.menu add radiobutton -label "Aeroflex-UT025CRH" -variable tmpvar_0 -value "Aeroflex-UT025CRH" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Aeroflex-UT130HBD" -variable tmpvar_0 -value "Aeroflex-UT130HBD" -command "update_active"
-	$w.config.f.x0.x.menu add radiobutton -label "Aeroflex-UT90NHBD" -variable tmpvar_0 -value "Aeroflex-UT90NHBD" -command "update_active"
+	$w.config.f.x0.x.menu add radiobutton -label "Aeroflex-UT90RHBD" -variable tmpvar_0 -value "Aeroflex-UT90RHBD" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Altera-CycloneIII" -variable tmpvar_0 -value "Altera-CycloneIII" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Altera-Stratix" -variable tmpvar_0 -value "Altera-Stratix" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Altera-StratixII" -variable tmpvar_0 -value "Altera-StratixII" -command "update_active"
@@ -749,6 +748,7 @@ proc menu1 {w title} {
 	$w.config.f.x0.x.menu add radiobutton -label "Custom1" -variable tmpvar_0 -value "Custom1" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "DARE" -variable tmpvar_0 -value "DARE" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "IBM-CMOS9SF" -variable tmpvar_0 -value "IBM-CMOS9SF" -command "update_active"
+	$w.config.f.x0.x.menu add radiobutton -label "Lattice-Nexus" -variable tmpvar_0 -value "Lattice-Nexus" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "NanoXplore-BraveMed" -variable tmpvar_0 -value "NanoXplore-BraveMed" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "Quicklogic-Eclipse" -variable tmpvar_0 -value "Quicklogic-Eclipse" -command "update_active"
 	$w.config.f.x0.x.menu add radiobutton -label "RH-LIB18T" -variable tmpvar_0 -value "RH-LIB18T" -command "update_active"
@@ -898,12 +898,10 @@ proc update_define_menu1 {} {
 	if {$tmpvar_0 == "Actel-RTG4"} then {set CONFIG_SYN_RTG4 1} else {set CONFIG_SYN_RTG4 0}
 	global CONFIG_SYN_POLARFIRE
 	if {$tmpvar_0 == "Actel-PolarFire"} then {set CONFIG_SYN_POLARFIRE 1} else {set CONFIG_SYN_POLARFIRE 0}
-	global CONFIG_SYN_UT025CRH
-	if {$tmpvar_0 == "Aeroflex-UT025CRH"} then {set CONFIG_SYN_UT025CRH 1} else {set CONFIG_SYN_UT025CRH 0}
 	global CONFIG_SYN_UT130HBD
 	if {$tmpvar_0 == "Aeroflex-UT130HBD"} then {set CONFIG_SYN_UT130HBD 1} else {set CONFIG_SYN_UT130HBD 0}
 	global CONFIG_SYN_UT90NHBD
-	if {$tmpvar_0 == "Aeroflex-UT90NHBD"} then {set CONFIG_SYN_UT90NHBD 1} else {set CONFIG_SYN_UT90NHBD 0}
+	if {$tmpvar_0 == "Aeroflex-UT90RHBD"} then {set CONFIG_SYN_UT90NHBD 1} else {set CONFIG_SYN_UT90NHBD 0}
 	global CONFIG_SYN_CYCLONEIII
 	if {$tmpvar_0 == "Altera-CycloneIII"} then {set CONFIG_SYN_CYCLONEIII 1} else {set CONFIG_SYN_CYCLONEIII 0}
 	global CONFIG_SYN_STRATIX
@@ -928,6 +926,8 @@ proc update_define_menu1 {} {
 	if {$tmpvar_0 == "DARE"} then {set CONFIG_SYN_DARE 1} else {set CONFIG_SYN_DARE 0}
 	global CONFIG_SYN_CMOS9SF
 	if {$tmpvar_0 == "IBM-CMOS9SF"} then {set CONFIG_SYN_CMOS9SF 1} else {set CONFIG_SYN_CMOS9SF 0}
+	global CONFIG_SYN_NEXUS
+	if {$tmpvar_0 == "Lattice-Nexus"} then {set CONFIG_SYN_NEXUS 1} else {set CONFIG_SYN_NEXUS 0}
 	global CONFIG_SYN_BRAVEMED
 	if {$tmpvar_0 == "NanoXplore-BraveMed"} then {set CONFIG_SYN_BRAVEMED 1} else {set CONFIG_SYN_BRAVEMED 0}
 	global CONFIG_SYN_ECLIPSE
@@ -3714,9 +3714,17 @@ proc menu16 {w title} {
 	hex $w.config.f 16 1 "Read instruction    " CONFIG_SPIMCTRL_READCMD
 	bool $w.config.f 16 2 "Read instruction requires dummy byte  " CONFIG_SPIMCTRL_DUMMYBYTE
 	bool $w.config.f 16 3 "Enable dual output for reads  " CONFIG_SPIMCTRL_DUALOUTPUT
-	hex $w.config.f 16 4 "Address offset     " CONFIG_SPIMCTRL_OFFSET
-	int $w.config.f 16 5 "Clock divisor for device clock" CONFIG_SPIMCTRL_SCALER
-	int $w.config.f 16 6 "Clock divisor for alt. device clock" CONFIG_SPIMCTRL_ASCALER
+	bool $w.config.f 16 4 "Enable quad output for reads  " CONFIG_SPIMCTRL_QUADOUTPUT
+	bool $w.config.f 16 5 "Enable dual input for reads  " CONFIG_SPIMCTRL_DUALINPUT
+	bool $w.config.f 16 6 "Enable quad input for reads  " CONFIG_SPIMCTRL_QUADINPUT
+	bool $w.config.f 16 7 "Enable DSPI mode  " CONFIG_SPIMCTRL_DSPI
+	bool $w.config.f 16 8 "Enable QSPI mode  " CONFIG_SPIMCTRL_QSPI
+	int $w.config.f 16 9 "Number of dummy cycles  " CONFIG_SPIMCTRL_DUMMYCYCLES
+	bool $w.config.f 16 10 "Use 4 byte address instead of 3  " CONFIG_SPIMCTRL_EXTADDR
+	hex $w.config.f 16 11 "Address offset     " CONFIG_SPIMCTRL_OFFSET
+	int $w.config.f 16 12 "Clock divisor for device clock" CONFIG_SPIMCTRL_SCALER
+	int $w.config.f 16 13 "Clock divisor for alt. device clock" CONFIG_SPIMCTRL_ASCALER
+	bool $w.config.f 16 14 "Enables writes for configuration register  " CONFIG_SPIMCTRL_RECONF
 
 
 
@@ -3763,12 +3771,35 @@ proc update_menu16 {} {
 	global CONFIG_SPIMCTRL_DUALOUTPUT
 	if {($CONFIG_SPIMCTRL == 1)} then {
 	configure_entry .menu16.config.f.x3 normal {n l y}} else {configure_entry .menu16.config.f.x3 disabled {y n l}}
+	global CONFIG_SPIMCTRL_QUADOUTPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x4 normal {n l y}} else {configure_entry .menu16.config.f.x4 disabled {y n l}}
+	global CONFIG_SPIMCTRL_DUALINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x5 normal {n l y}} else {configure_entry .menu16.config.f.x5 disabled {y n l}}
+	global CONFIG_SPIMCTRL_QUADINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x6 normal {n l y}} else {configure_entry .menu16.config.f.x6 disabled {y n l}}
+	global CONFIG_SPIMCTRL_DSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x7 normal {n l y}} else {configure_entry .menu16.config.f.x7 disabled {y n l}}
+	global CONFIG_SPIMCTRL_QSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x8 normal {n l y}} else {configure_entry .menu16.config.f.x8 disabled {y n l}}
+	global CONFIG_SPIMCTRL_DUMMYCYCLES
+	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x9.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x9.l configure -state normal; } else {.menu16.config.f.x9.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x9.l configure -state disabled}
+	global CONFIG_SPIMCTRL_EXTADDR
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x10 normal {n l y}} else {configure_entry .menu16.config.f.x10 disabled {y n l}}
 	global CONFIG_SPIMCTRL_OFFSET
-	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x4.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x4.l configure -state normal; } else {.menu16.config.f.x4.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x4.l configure -state disabled}
+	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x11.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x11.l configure -state normal; } else {.menu16.config.f.x11.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x11.l configure -state disabled}
 	global CONFIG_SPIMCTRL_SCALER
-	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x5.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x5.l configure -state normal; } else {.menu16.config.f.x5.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x5.l configure -state disabled}
+	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x12.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x12.l configure -state normal; } else {.menu16.config.f.x12.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x12.l configure -state disabled}
 	global CONFIG_SPIMCTRL_ASCALER
-	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x6.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x6.l configure -state normal; } else {.menu16.config.f.x6.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x6.l configure -state disabled}
+	if {($CONFIG_SPIMCTRL == 1)} then {.menu16.config.f.x13.x configure -state normal -foreground [ cget .ref -foreground ]; .menu16.config.f.x13.l configure -state normal; } else {.menu16.config.f.x13.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu16.config.f.x13.l configure -state disabled}
+	global CONFIG_SPIMCTRL_RECONF
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	configure_entry .menu16.config.f.x14 normal {n l y}} else {configure_entry .menu16.config.f.x14 disabled {y n l}}
 }
 
 
@@ -3784,12 +3815,35 @@ proc update_define_menu16 {} {
 	global CONFIG_SPIMCTRL_DUALOUTPUT
 	if {($CONFIG_SPIMCTRL == 1)} then {
 	set CONFIG_SPIMCTRL_DUALOUTPUT [expr $CONFIG_SPIMCTRL_DUALOUTPUT&15]} else {set CONFIG_SPIMCTRL_DUALOUTPUT [expr $CONFIG_SPIMCTRL_DUALOUTPUT|16]}
+	global CONFIG_SPIMCTRL_QUADOUTPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_QUADOUTPUT [expr $CONFIG_SPIMCTRL_QUADOUTPUT&15]} else {set CONFIG_SPIMCTRL_QUADOUTPUT [expr $CONFIG_SPIMCTRL_QUADOUTPUT|16]}
+	global CONFIG_SPIMCTRL_DUALINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_DUALINPUT [expr $CONFIG_SPIMCTRL_DUALINPUT&15]} else {set CONFIG_SPIMCTRL_DUALINPUT [expr $CONFIG_SPIMCTRL_DUALINPUT|16]}
+	global CONFIG_SPIMCTRL_QUADINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_QUADINPUT [expr $CONFIG_SPIMCTRL_QUADINPUT&15]} else {set CONFIG_SPIMCTRL_QUADINPUT [expr $CONFIG_SPIMCTRL_QUADINPUT|16]}
+	global CONFIG_SPIMCTRL_DSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_DSPI [expr $CONFIG_SPIMCTRL_DSPI&15]} else {set CONFIG_SPIMCTRL_DSPI [expr $CONFIG_SPIMCTRL_DSPI|16]}
+	global CONFIG_SPIMCTRL_QSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_QSPI [expr $CONFIG_SPIMCTRL_QSPI&15]} else {set CONFIG_SPIMCTRL_QSPI [expr $CONFIG_SPIMCTRL_QSPI|16]}
+	global CONFIG_SPIMCTRL_DUMMYCYCLES
+	if {($CONFIG_SPIMCTRL == 1)} then {validate_int CONFIG_SPIMCTRL_DUMMYCYCLES "$CONFIG_SPIMCTRL_DUMMYCYCLES" 0}
+	global CONFIG_SPIMCTRL_EXTADDR
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_EXTADDR [expr $CONFIG_SPIMCTRL_EXTADDR&15]} else {set CONFIG_SPIMCTRL_EXTADDR [expr $CONFIG_SPIMCTRL_EXTADDR|16]}
 	global CONFIG_SPIMCTRL_OFFSET
 	if {($CONFIG_SPIMCTRL == 1)} then {validate_hex CONFIG_SPIMCTRL_OFFSET "$CONFIG_SPIMCTRL_OFFSET" 0}
 	global CONFIG_SPIMCTRL_SCALER
 	if {($CONFIG_SPIMCTRL == 1)} then {validate_int CONFIG_SPIMCTRL_SCALER "$CONFIG_SPIMCTRL_SCALER" 1}
 	global CONFIG_SPIMCTRL_ASCALER
 	if {($CONFIG_SPIMCTRL == 1)} then {validate_int CONFIG_SPIMCTRL_ASCALER "$CONFIG_SPIMCTRL_ASCALER" 8}
+	global CONFIG_SPIMCTRL_RECONF
+	if {($CONFIG_SPIMCTRL == 1)} then {
+	set CONFIG_SPIMCTRL_RECONF [expr $CONFIG_SPIMCTRL_RECONF&15]} else {set CONFIG_SPIMCTRL_RECONF [expr $CONFIG_SPIMCTRL_RECONF|16]}
 }
 
 
@@ -4028,6 +4082,7 @@ proc menu18 {w title} {
 	$w.config.f.x2.x.menu add radiobutton -label "64" -variable tmpvar_33 -value "64" -command "update_active"
 	menusplit $w $w.config.f.x2.x.menu 5
 	bool $w.config.f 18 3 "Enable FMC" CONFIG_GRETH_FMC_MODE
+	int $w.config.f 18 4 "PHY address  " CONFIG_GRETH_PHY_ADDR
 
 
 
@@ -4073,6 +4128,8 @@ proc update_menu18 {} {
 	global CONFIG_GRETH_FMC_MODE
 	if {($CONFIG_GRETH_ENABLE == 1)} then {
 	configure_entry .menu18.config.f.x3 normal {n l y}} else {configure_entry .menu18.config.f.x3 disabled {y n l}}
+	global CONFIG_GRETH_PHY_ADDR
+	if {($CONFIG_GRETH_ENABLE == 1)} then {.menu18.config.f.x4.x configure -state normal -foreground [ cget .ref -foreground ]; .menu18.config.f.x4.l configure -state normal; } else {.menu18.config.f.x4.x configure -state disabled -foreground [ cget .ref -disabledforeground ]; .menu18.config.f.x4.l configure -state disabled}
 }
 
 
@@ -4097,6 +4154,8 @@ proc update_define_menu18 {} {
 	global CONFIG_GRETH_FMC_MODE
 	if {($CONFIG_GRETH_ENABLE == 1)} then {
 	set CONFIG_GRETH_FMC_MODE [expr $CONFIG_GRETH_FMC_MODE&15]} else {set CONFIG_GRETH_FMC_MODE [expr $CONFIG_GRETH_FMC_MODE|16]}
+	global CONFIG_GRETH_PHY_ADDR
+	if {($CONFIG_GRETH_ENABLE == 1)} then {validate_int CONFIG_GRETH_PHY_ADDR "$CONFIG_GRETH_PHY_ADDR" 1}
 }
 
 
@@ -4687,7 +4746,6 @@ set CONFIG_SYN_IGLOO2 0
 set CONFIG_SYN_SF2 0
 set CONFIG_SYN_RTG4 0
 set CONFIG_SYN_POLARFIRE 0
-set CONFIG_SYN_UT025CRH 0
 set CONFIG_SYN_UT130HBD 0
 set CONFIG_SYN_UT90NHBD 0
 set CONFIG_SYN_CYCLONEIII 0
@@ -4702,6 +4760,7 @@ set CONFIG_SYN_ATC18RHA 0
 set CONFIG_SYN_CUSTOM1 0
 set CONFIG_SYN_DARE 0
 set CONFIG_SYN_CMOS9SF 0
+set CONFIG_SYN_NEXUS 0
 set CONFIG_SYN_BRAVEMED 0
 set CONFIG_SYN_ECLIPSE 0
 set CONFIG_SYN_RH_LIB18T 0
@@ -4980,9 +5039,17 @@ set CONFIG_SPIMCTRL 0
 set CONFIG_SPIMCTRL_READCMD 0B
 set CONFIG_SPIMCTRL_DUMMYBYTE 0
 set CONFIG_SPIMCTRL_DUALOUTPUT 0
+set CONFIG_SPIMCTRL_QUADOUTPUT 0
+set CONFIG_SPIMCTRL_DUALINPUT 0
+set CONFIG_SPIMCTRL_QUADINPUT 0
+set CONFIG_SPIMCTRL_DSPI 0
+set CONFIG_SPIMCTRL_QSPI 0
+set CONFIG_SPIMCTRL_DUMMYCYCLES 0
+set CONFIG_SPIMCTRL_EXTADDR 0
 set CONFIG_SPIMCTRL_OFFSET 0
 set CONFIG_SPIMCTRL_SCALER 1
 set CONFIG_SPIMCTRL_ASCALER 8
+set CONFIG_SPIMCTRL_RECONF 0
 set CONFIG_AHBROM_ENABLE 0
 set CONFIG_AHBROM_START 000
 set CONFIG_AHBROM_PIPE 0
@@ -5012,6 +5079,7 @@ set CONFIG_GRETH_FIFO16 0
 set CONFIG_GRETH_FIFO32 0
 set CONFIG_GRETH_FIFO64 0
 set CONFIG_GRETH_FMC_MODE 0
+set CONFIG_GRETH_PHY_ADDR 1
 set CONFIG_UART1_ENABLE 0
 set tmpvar_34 "(not set)"
 set CONFIG_UA1_FIFO1 0
@@ -5114,9 +5182,8 @@ proc writeconfig {file1 file2} {
 	if { $tmpvar_0 == "Actel-SmartFusion2" } then { write_tristate $cfg $autocfg CONFIG_SYN_SF2 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_SF2 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Actel-RTG4" } then { write_tristate $cfg $autocfg CONFIG_SYN_RTG4 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_RTG4 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Actel-PolarFire" } then { write_tristate $cfg $autocfg CONFIG_SYN_POLARFIRE 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_POLARFIRE 0 [list $notmod] 2 }
-	if { $tmpvar_0 == "Aeroflex-UT025CRH" } then { write_tristate $cfg $autocfg CONFIG_SYN_UT025CRH 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_UT025CRH 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Aeroflex-UT130HBD" } then { write_tristate $cfg $autocfg CONFIG_SYN_UT130HBD 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_UT130HBD 0 [list $notmod] 2 }
-	if { $tmpvar_0 == "Aeroflex-UT90NHBD" } then { write_tristate $cfg $autocfg CONFIG_SYN_UT90NHBD 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_UT90NHBD 0 [list $notmod] 2 }
+	if { $tmpvar_0 == "Aeroflex-UT90RHBD" } then { write_tristate $cfg $autocfg CONFIG_SYN_UT90NHBD 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_UT90NHBD 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Altera-CycloneIII" } then { write_tristate $cfg $autocfg CONFIG_SYN_CYCLONEIII 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_CYCLONEIII 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Altera-Stratix" } then { write_tristate $cfg $autocfg CONFIG_SYN_STRATIX 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_STRATIX 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Altera-StratixII" } then { write_tristate $cfg $autocfg CONFIG_SYN_STRATIXII 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_STRATIXII 0 [list $notmod] 2 }
@@ -5129,6 +5196,7 @@ proc writeconfig {file1 file2} {
 	if { $tmpvar_0 == "Custom1" } then { write_tristate $cfg $autocfg CONFIG_SYN_CUSTOM1 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_CUSTOM1 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "DARE" } then { write_tristate $cfg $autocfg CONFIG_SYN_DARE 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_DARE 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "IBM-CMOS9SF" } then { write_tristate $cfg $autocfg CONFIG_SYN_CMOS9SF 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_CMOS9SF 0 [list $notmod] 2 }
+	if { $tmpvar_0 == "Lattice-Nexus" } then { write_tristate $cfg $autocfg CONFIG_SYN_NEXUS 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_NEXUS 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "NanoXplore-BraveMed" } then { write_tristate $cfg $autocfg CONFIG_SYN_BRAVEMED 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_BRAVEMED 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "Quicklogic-Eclipse" } then { write_tristate $cfg $autocfg CONFIG_SYN_ECLIPSE 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_ECLIPSE 0 [list $notmod] 2 }
 	if { $tmpvar_0 == "RH-LIB18T" } then { write_tristate $cfg $autocfg CONFIG_SYN_RH_LIB18T 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_SYN_RH_LIB18T 0 [list $notmod] 2 }
@@ -5714,12 +5782,28 @@ proc writeconfig {file1 file2} {
 	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_DUMMYBYTE $CONFIG_SPIMCTRL_DUMMYBYTE [list $notmod] 2 }
 	global CONFIG_SPIMCTRL_DUALOUTPUT
 	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_DUALOUTPUT $CONFIG_SPIMCTRL_DUALOUTPUT [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_QUADOUTPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_QUADOUTPUT $CONFIG_SPIMCTRL_QUADOUTPUT [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_DUALINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_DUALINPUT $CONFIG_SPIMCTRL_DUALINPUT [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_QUADINPUT
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_QUADINPUT $CONFIG_SPIMCTRL_QUADINPUT [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_DSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_DSPI $CONFIG_SPIMCTRL_DSPI [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_QSPI
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_QSPI $CONFIG_SPIMCTRL_QSPI [list $notmod] 2 }
+	global CONFIG_SPIMCTRL_DUMMYCYCLES
+	if {($CONFIG_SPIMCTRL == 1)} then {write_int $cfg $autocfg CONFIG_SPIMCTRL_DUMMYCYCLES $CONFIG_SPIMCTRL_DUMMYCYCLES $notmod }
+	global CONFIG_SPIMCTRL_EXTADDR
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_EXTADDR $CONFIG_SPIMCTRL_EXTADDR [list $notmod] 2 }
 	global CONFIG_SPIMCTRL_OFFSET
 	if {($CONFIG_SPIMCTRL == 1)} then {write_hex $cfg $autocfg CONFIG_SPIMCTRL_OFFSET $CONFIG_SPIMCTRL_OFFSET $notmod }
 	global CONFIG_SPIMCTRL_SCALER
 	if {($CONFIG_SPIMCTRL == 1)} then {write_int $cfg $autocfg CONFIG_SPIMCTRL_SCALER $CONFIG_SPIMCTRL_SCALER $notmod }
 	global CONFIG_SPIMCTRL_ASCALER
 	if {($CONFIG_SPIMCTRL == 1)} then {write_int $cfg $autocfg CONFIG_SPIMCTRL_ASCALER $CONFIG_SPIMCTRL_ASCALER $notmod }
+	global CONFIG_SPIMCTRL_RECONF
+	if {($CONFIG_SPIMCTRL == 1)} then {write_tristate $cfg $autocfg CONFIG_SPIMCTRL_RECONF $CONFIG_SPIMCTRL_RECONF [list $notmod] 2 }
 	write_comment $cfg $autocfg "On-chip RAM/ROM                 "
 	global CONFIG_AHBROM_ENABLE
 	write_tristate $cfg $autocfg CONFIG_AHBROM_ENABLE $CONFIG_AHBROM_ENABLE [list $notmod] 2
@@ -5761,6 +5845,8 @@ proc writeconfig {file1 file2} {
 	if { $tmpvar_33 == "64" } then { write_tristate $cfg $autocfg CONFIG_GRETH_FIFO64 1 [list $notmod] 2 } else { write_tristate $cfg $autocfg CONFIG_GRETH_FIFO64 0 [list $notmod] 2 }}
 	global CONFIG_GRETH_FMC_MODE
 	if {($CONFIG_GRETH_ENABLE == 1)} then {write_tristate $cfg $autocfg CONFIG_GRETH_FMC_MODE $CONFIG_GRETH_FMC_MODE [list $notmod] 2 }
+	global CONFIG_GRETH_PHY_ADDR
+	if {($CONFIG_GRETH_ENABLE == 1)} then {write_int $cfg $autocfg CONFIG_GRETH_PHY_ADDR $CONFIG_GRETH_PHY_ADDR $notmod }
 	write_comment $cfg $autocfg "UARTs, timers and irq control         "
 	global CONFIG_UART1_ENABLE
 	write_tristate $cfg $autocfg CONFIG_UART1_ENABLE $CONFIG_UART1_ENABLE [list $notmod] 2
@@ -5853,7 +5939,6 @@ proc clear_choices { } {
 	global CONFIG_SYN_SF2; set CONFIG_SYN_SF2 0
 	global CONFIG_SYN_RTG4; set CONFIG_SYN_RTG4 0
 	global CONFIG_SYN_POLARFIRE; set CONFIG_SYN_POLARFIRE 0
-	global CONFIG_SYN_UT025CRH; set CONFIG_SYN_UT025CRH 0
 	global CONFIG_SYN_UT130HBD; set CONFIG_SYN_UT130HBD 0
 	global CONFIG_SYN_UT90NHBD; set CONFIG_SYN_UT90NHBD 0
 	global CONFIG_SYN_CYCLONEIII; set CONFIG_SYN_CYCLONEIII 0
@@ -5868,6 +5953,7 @@ proc clear_choices { } {
 	global CONFIG_SYN_CUSTOM1; set CONFIG_SYN_CUSTOM1 0
 	global CONFIG_SYN_DARE; set CONFIG_SYN_DARE 0
 	global CONFIG_SYN_CMOS9SF; set CONFIG_SYN_CMOS9SF 0
+	global CONFIG_SYN_NEXUS; set CONFIG_SYN_NEXUS 0
 	global CONFIG_SYN_BRAVEMED; set CONFIG_SYN_BRAVEMED 0
 	global CONFIG_SYN_ECLIPSE; set CONFIG_SYN_ECLIPSE 0
 	global CONFIG_SYN_RH_LIB18T; set CONFIG_SYN_RH_LIB18T 0
@@ -6102,12 +6188,10 @@ proc update_choices { } {
 	if { $CONFIG_SYN_RTG4 == 1 } then { set tmpvar_0 "Actel-RTG4" }
 	global CONFIG_SYN_POLARFIRE
 	if { $CONFIG_SYN_POLARFIRE == 1 } then { set tmpvar_0 "Actel-PolarFire" }
-	global CONFIG_SYN_UT025CRH
-	if { $CONFIG_SYN_UT025CRH == 1 } then { set tmpvar_0 "Aeroflex-UT025CRH" }
 	global CONFIG_SYN_UT130HBD
 	if { $CONFIG_SYN_UT130HBD == 1 } then { set tmpvar_0 "Aeroflex-UT130HBD" }
 	global CONFIG_SYN_UT90NHBD
-	if { $CONFIG_SYN_UT90NHBD == 1 } then { set tmpvar_0 "Aeroflex-UT90NHBD" }
+	if { $CONFIG_SYN_UT90NHBD == 1 } then { set tmpvar_0 "Aeroflex-UT90RHBD" }
 	global CONFIG_SYN_CYCLONEIII
 	if { $CONFIG_SYN_CYCLONEIII == 1 } then { set tmpvar_0 "Altera-CycloneIII" }
 	global CONFIG_SYN_STRATIX
@@ -6132,6 +6216,8 @@ proc update_choices { } {
 	if { $CONFIG_SYN_DARE == 1 } then { set tmpvar_0 "DARE" }
 	global CONFIG_SYN_CMOS9SF
 	if { $CONFIG_SYN_CMOS9SF == 1 } then { set tmpvar_0 "IBM-CMOS9SF" }
+	global CONFIG_SYN_NEXUS
+	if { $CONFIG_SYN_NEXUS == 1 } then { set tmpvar_0 "Lattice-Nexus" }
 	global CONFIG_SYN_BRAVEMED
 	if { $CONFIG_SYN_BRAVEMED == 1 } then { set tmpvar_0 "NanoXplore-BraveMed" }
 	global CONFIG_SYN_ECLIPSE

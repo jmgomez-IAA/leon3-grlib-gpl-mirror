@@ -78,7 +78,7 @@ entity leon3mp is
     -- LEDs
     led         : out   std_logic_vector(7 downto 0);
     -- GPIOs
-    -- gpio        : inout std_logic_vector(9 downto 0);
+    gpio        : inout std_logic_vector(4 downto 0);
     -- I2C
     iic_scl     : inout std_ulogic;
     iic_sda     : inout std_ulogic;
@@ -87,19 +87,19 @@ entity leon3mp is
     -- SPI
     spi_miso     : in    std_ulogic;
     spi_mosi     : out   std_ulogic;
-    spi_sel      : out   std_logic_vector(1 downto 0);
+    --spi_sel      : out   std_logic_vector(1 downto 0);
     spi_sck      : out   std_ulogic;
 
     -- SPI1
     spi_1_miso     : in    std_ulogic;
     spi_1_mosi     : out   std_ulogic;
-    spi_1_sel      : out   std_logic_vector(1 downto 0);
+    --spi_1_sel      : out   std_logic_vector(1 downto 0);
     spi_1_sck      : out   std_ulogic;
 
     -- SPI2
     spi_2_miso     : in    std_ulogic;
     spi_2_mosi     : out   std_ulogic;
-    spi_2_sel      : out   std_logic_vector(1 downto 0);
+    --spi_2_sel      : out   std_logic_vector(1 downto 0);
     spi_2_sck      : out   std_ulogic;
 
     -- Ethernet
@@ -1104,19 +1104,19 @@ begin
   -- GPIO units
   gpio0 : if CFG_GRGPIO_ENABLE /= 0 generate
 
-    -- pio_pads : for i in 0 to 9 generate
-    --  gpio_pad : iopad generic map (tech => padtech, level => cmos, voltage => x12v, strength => 8)
-    --    port map (gpio(i), gpioo1.dout(i), gpioo1.oen(i), gpioi1.din(i));
-    -- end generate;
+     pio_pads : for i in 0 to 4 generate
+      gpio_pad : iopad generic map (tech => padtech, level => cmos, voltage => x12v, strength => 8)
+        port map (gpio(i), gpioo1.dout(i), gpioo1.oen(i), gpioi1.din(i));
+     end generate;
 
-    -- grgpio_hd : grgpio
-    --  generic map (pindex => 11, paddr => 11, imask => CFG_GRGPIO_IMASK, nbits => 8)
-    --  port map (rst   => rstn, clk => clkm, apbi => apbi, apbo => apbo(11),
-    --            gpioi => gpioi1, gpioo => gpioo1);
+     grgpio_hd : grgpio
+      generic map (pindex => 11, paddr => 11, imask => CFG_GRGPIO_IMASK, nbits => 8)
+      port map (rst   => rstn, clk => clkm, apbi => apbi, apbo => apbo(11),
+                gpioi => gpioi1, gpioo => gpioo1);
 
     -- Tie-off alternative output enable signals
-    -- gpioi1.sig_en       <= (others => '0');
-    -- gpioi1.sig_in       <= (others => '0');
+     gpioi1.sig_en       <= (others => '0');
+     gpioi1.sig_in       <= (others => '0');
 
 
 
@@ -1163,6 +1163,8 @@ begin
     apbo(1) <= apb_none;
   end generate;
 
+
+
   -- I2C Master
   i2cm: if CFG_I2C_ENABLE = 1 generate
     i2c0 : i2cmst generic map (pindex => 9, paddr => 9, pmask => 16#FFF#, pirq => 10, filter => 9)
@@ -1185,7 +1187,7 @@ begin
        fdepth   => CFG_SPICTRL_FIFO, slvselen => CFG_SPICTRL_SLVREG,
        slvselsz => CFG_SPICTRL_SLVS, odmode => 0, netlist => 0,
        syncram  => CFG_SPICTRL_SYNCRAM, ft => CFG_SPICTRL_FT)
-      port map (rstn, clkm, apbi, apbo(5), spii, spio, slvsel);
+      port map (rstn, clkm, apbi, apbo(5), spii, spio, open);
     spii.spisel <= '1';          -- Master only
   
     miso_pad : inpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
@@ -1197,10 +1199,10 @@ begin
     sck_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
       port map (spi_sck, spio.sck);
 
-    slvsel_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
-      slvsel_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
-        port map (spi_sel(i), slvsel(i));
-    end generate slvsel_pads;
+--    slvsel_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
+--      slvsel_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
+--        port map (spi_sel(i), slvsel(i));
+--    end generate slvsel_pads;
 
   end generate spic;
 
@@ -1213,10 +1215,10 @@ begin
     sck_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
       port map (spi_sck, gnd);
 
-    slvsel_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
-      slvsel_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
-        port map (spi_sel(i), vcc);
-    end generate slvsel_pads;
+--    slvsel_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
+--      slvsel_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
+--        port map (spi_sel(i), vcc);
+--    end generate slvsel_pads;
 
   end generate;
 
@@ -1228,7 +1230,7 @@ begin
        fdepth   => CFG_SPICTRL_FIFO, slvselen => CFG_SPICTRL_SLVREG,
        slvselsz => CFG_SPICTRL_SLVS, odmode => 0, netlist => 0,
        syncram  => CFG_SPICTRL_SYNCRAM, ft => CFG_SPICTRL_FT)
-      port map (rstn, clkm, apbi, apbo(6), spi_p1_i, spi_p1_o, spi_p1_slvsel);
+      port map (rstn, clkm, apbi, apbo(6), spi_p1_i, spi_p1_o, open);
     spi_p1_i.spisel <= '1';          -- Master only
   
     miso_p1_pad : inpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
@@ -1239,11 +1241,6 @@ begin
 
     sck_p1_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
       port map (spi_1_sck, spi_p1_o.sck);
-
-    slvsel_p1_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
-      slvsel_p1_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
-        port map (spi_1_sel(i), spi_p1_slvsel(i));
-    end generate slvsel_p1_pads;
 
   end generate spic2;
 
@@ -1256,7 +1253,7 @@ begin
        fdepth   => CFG_SPICTRL_FIFO, slvselen => CFG_SPICTRL_SLVREG,
        slvselsz => CFG_SPICTRL_SLVS, odmode => 0, netlist => 0,
        syncram  => CFG_SPICTRL_SYNCRAM, ft => CFG_SPICTRL_FT)
-      port map (rstn, clkm, apbi, apbo(13), spi_p2_i, spi_p2_o, spi_p2_slvsel);
+      port map (rstn, clkm, apbi, apbo(13), spi_p2_i, spi_p2_o, open);
     spi_p2_i.spisel <= '1';          -- Master only
   
     miso_p2_pad : inpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
@@ -1267,11 +1264,6 @@ begin
 
     sck_p2_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
       port map (spi_2_sck, spi_p2_o.sck);
-
-    slvsel_p2_pads : for i in 0 to CFG_SPICTRL_SLVS-1 generate
-      slvsel_p2_pad : outpad generic map (level => cmos, voltage => x12v, tech => padtech, strength => 8)
-        port map (spi_2_sel(i), spi_p2_slvsel(i));
-    end generate slvsel_p2_pads;
 
   end generate spic3;
 
