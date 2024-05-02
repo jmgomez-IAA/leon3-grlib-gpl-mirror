@@ -5,15 +5,14 @@ pipeline {
     stage('Build project') {
       steps {
         // Command 1
-        echo "Building project...."
-        cd designs/leon3-xilinx-kcu105
-        make vivado        
+        sh 'echo "Building project...."'
+        sh 'cd designs/leon3-xilinx-kcu105 && make vivado'
       }
     }   
   }
   post {
     failure {
-      echo "Error failed to build"
+      sh 'echo "Error failed to build"'
     }
   }
 }
