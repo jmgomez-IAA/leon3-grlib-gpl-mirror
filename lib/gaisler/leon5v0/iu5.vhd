@@ -42,6 +42,7 @@ use techmap.gencomp.all;
 library gaisler;
 use gaisler.leon5.all;
 use gaisler.leon5int.all;
+use gaisler.cpucore5int.all;
 use gaisler.arith.all;
 -- pragma translate_off
 use grlib.sparc_disas.all;
@@ -4561,8 +4562,14 @@ architecture rtl of iu5 is
       end if;
     end if;
 
-    if fpu5i.trapon_ldst = '1' then
-      if is_fpu_load(de_inst) = '1' or (is_fpu_store(de_inst) = '1' and op3 /= "100110") then
+    if fpu5i.trapon_ld = '1' then
+      if is_fpu_load(de_inst) = '1' then
+        de_issue := '1';
+      end if;
+    end if;
+
+    if fpu5i.trapon_st = '1' then
+      if is_fpu_store(de_inst) = '1' and op3 /= "100110" then
         de_issue := '1';
       end if;
     end if;
@@ -12249,8 +12256,17 @@ begin
         end if;
       end if;
 
-      if fpu5o.trapon_ldst = '1' then
-        if is_fpu_load(fpu_issue_inst) = '1' or (is_fpu_store(fpu_issue_inst) = '1' and fpu_issue_inst(24 downto 19) /= "100110") then
+      if fpu5o.trapon_ld = '1' then
+        if is_fpu_load(fpu_issue_inst) = '1' then
+          if fpu5i_issue_cmd_btrap /= "000" then
+            v.a.fpc_ctrl.trap_fp := '1';
+          end if;
+          fpu5i_issue_cmd := "000";
+        end if;
+      end if;
+
+      if fpu5o.trapon_st = '1' then
+        if (is_fpu_store(fpu_issue_inst) = '1' and fpu_issue_inst(24 downto 19) /= "100110") then
           if fpu5i_issue_cmd_btrap /= "000" then
             v.a.fpc_ctrl.trap_fp := '1';
           end if;

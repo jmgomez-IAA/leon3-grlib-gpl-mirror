@@ -24,6 +24,7 @@
 -- Description: NOEL-V debug module
 ------------------------------------------------------------------------------
 
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -36,6 +37,8 @@ use grlib.stdlib.orv;
 use grlib.stdlib.notx;
 use grlib.stdlib.zero32;
 use grlib.stdlib.conv_std_logic;
+use grlib.stdlib.conv_integer;
+use grlib.stdlib."+";
 use grlib.devices.all;
 use grlib.stdlib.tost;
 library gaisler;
@@ -52,6 +55,8 @@ entity dmnvx is
   generic (
     -- Debug Module
     nharts      : integer                       := 1;   -- number of harts
+    nhgroups    : integer                       := 4;   -- Number of halt groups
+    nrgroups    : integer                       := 4;   -- Number of resume groups
     datacount   : integer range 0  to 12        := 4;   -- Number of data registers
     nscratch    : integer range 0  to 2         := 2;   -- Number of scratch registers
     unavailtimeout:integer range 0  to 1024     := 64;  -- Clock cycles timeout
@@ -67,7 +72,6 @@ entity dmnvx is
     dbgo   : out nv_debug_in_vector(0 to NHARTS-1);
     dsui   : in  nv_dm_in_type;
     dsuo   : out nv_dm_out_type
-    -- NW FIXME: ...
     );
 
 end;
@@ -153,6 +157,26 @@ architecture rtl of dmnvx is
     write       => '0',
     regno       => (others => '0')
   );
+
+  type sbcontrol_type is record
+    sbbusyerror     : std_logic;
+    sbbusy          : std_logic;
+    sbreadonaddr    : std_logic;
+    sbaccess        : std_logic_vector(2 downto 0);
+    sbautoincrement : std_logic;
+    sbreadondata    : std_logic;
+    sberror         : std_logic_vector(2 downto 0);
+  end record;
+  constant sbcontrol_reset : sbcontrol_type := (
+    sbbusyerror     => '0',
+    sbbusy          => '0',
+    sbreadonaddr    => '0',
+    sbaccess        => "010",
+    sbautoincrement => '0',
+    sbreadondata    => '0',
+    sberror         => (others => '0')
+  );
+
   type autoexec_type is record
     data    : std_logic_vector(DATACOUNT-1 downto 0);
     progbuf : std_logic_vector(PROGBUFSIZE-1 downto 0);
@@ -162,6 +186,8 @@ architecture rtl of dmnvx is
     progbuf => (others => '0')
   );
 
+  type group_type is array (natural range <>) of std_logic_vector(NHARTS-1 downto 0);
+
   type reg_type is record
     -- DSU Interface
     dsuen       : std_logic_vector(2 downto 0);
@@ -169,12 +195,14 @@ architecture rtl of dmnvx is
     break       : std_ulogic;
     -- From Debug Module to Harts
     en          : std_logic_vector(NHARTS-1 downto 0);
-    halt        : std_logic_vector(NHARTS-1 downto 0);
-    resume      : std_logic_vector(NHARTS-1 downto 0);
-    reset       : std_logic_vector(NHARTS-1 downto 0);
+    ghaltpend   : std_logic_vector(NHARTS-1 downto 0); -- Hart is pending to be halted due to halt group
+    gresumepend : std_logic_vector(NHARTS-1 downto 0); -- Hart is pending to be resumed due to resume group
     hawindow    : std_logic_vector(NHARTS-1 downto 0);
     data        : data_type;
     control     : dmcontrol_type;
+    hgroups     : group_type(0 to nhgroups-1);         -- Stores which hart belongs to each halt group
+    rgroups     : group_type(0 to nrgroups-1);         -- Stores which hart belongs to each resume group
+    grouptype   : std_ulogic;
     cmd         : abscommand_type;
     autoexec    : autoexec_type;
     busy        : std_ulogic;
@@ -182,6 +210,11 @@ architecture rtl of dmnvx is
     cmderr      : std_logic_vector(2 downto 0);
     unavailcnt  : std_logic_vector(UNAVAIL_H downto 0);
     haltonrst   : std_logic_vector(NHARTS-1 downto 0);
+    -- System Bus Access
+    sbcontrol   : sbcontrol_type;
+    psberror    : std_logic_vector(2 downto 0);   -- Precalculated sberror
+    sbaddress   : std_logic_vector(31 downto 0);
+    sbdata      : std_logic_vector(31 downto 0);  -- Transfers wider than 32 bits are not allowed
     -- From Harts to Debug Module
     running     : std_logic_vector(NHARTS-1 downto 0);
     halted      : std_logic_vector(NHARTS-1 downto 0);
@@ -197,12 +230,17 @@ architecture rtl of dmnvx is
     break       => '0',
     -- From Debug Module to Harts
     en          => (others => '0'),
-    halt        => (others => '0'),
-    resume      => (others => '0'),
-    reset       => (others => '0'),
+    --halt        => (others => '0'),
+    --resume      => (others => '0'),
+    --reset       => (others => '0'),
+    ghaltpend   => (others => '0'),
+    gresumepend => (others => '0'),
     hawindow    => (others => '0'),
     data        => (others => zero32),
     control     => dmcontrol_reset,
+    hgroups     => (others => (others => '0')),
+    rgroups     => (others => (others => '0')),
+    grouptype   => '0',
     cmd         => abscommand_reset,
     autoexec    => autoexec_reset,
     busy        => '0',
@@ -210,6 +248,11 @@ architecture rtl of dmnvx is
     cmderr      => (others => '0'),
     unavailcnt  => (others => '0'),
     haltonrst   => (others => '0'),
+    -- System Bus Access
+    sbcontrol   => sbcontrol_reset,
+    psberror    => (others => '0'),
+    sbaddress   => (others => '0'),
+    sbdata      => (others => '0'),
     -- From Harts to Debug Module
     running     => (others => '0'),
     halted      => (others => '0'),
@@ -279,6 +322,10 @@ begin
     variable derr               : std_ulogic;
     variable dexec_done         : std_ulogic;
     variable pbwrite            : std_logic_vector(NHARTS-1 downto 0);
+    -- Hatl groups
+    variable clrghaltpend        : std_logic_vector(NHARTS-1 downto 0);
+    variable clrgresumepend      : std_logic_vector(NHARTS-1 downto 0);
+
 
 
     procedure dm_reg_access(
@@ -286,7 +333,8 @@ begin
       wr      : in  std_ulogic;
       wdata   : in  std_logic_vector;
       rdata   : out std_logic_vector) is
-      variable vrd, vwd: std_logic_vector(31 downto 0);
+      variable vrd     : std_logic_vector(31 downto 0);
+      variable vwd     : std_logic_vector(wdata'length - 1 downto 0);
       variable hasel2  : std_logic_vector(ADDR_H downto 6) := addr(ADDR_H downto 6);
       variable hasel3  : std_logic_vector(5 downto 2) := addr(5 downto 2);
     begin
@@ -444,11 +492,139 @@ begin
           end if;
         when "0011" =>
           case hasel3 is
+            when "0010" => -- Debug Module Control and Status 2 
+              -- Read
+              if nrgroups > 0 then
+                vrd(11)           := r.grouptype;
+              end if;
+              if r.grouptype = '0' then    -- halt groups
+                if nhgroups > 0 then
+                  for i in 0 to nhgroups-1 loop
+                    if r.hgroups(i)(to_integer(unsigned(r.control.hartsel))) = '1' then
+                      vrd(6 downto 2)   := std_logic_vector(to_unsigned(i, 5));
+                    end if;
+                  end loop;
+                end if;
+              else                       -- resume groups
+                if nrgroups > 0 then
+                  for i in 0 to nrgroups-1 loop
+                    if r.rgroups(i)(to_integer(unsigned(r.control.hartsel))) = '1' then
+                      vrd(6 downto 2)   := std_logic_vector(to_unsigned(i, 5));
+                    end if;
+                  end loop;
+                end if;
+              end if;
+              -- Write
+              if wr = '1' then
+                if nrgroups > 0 then
+                  v.grouptype   :=  vwd(11); 
+                end if;
+                if vwd(1) = '1' then   -- hgwrite = 1
+                  if vwd(11) = '0' then      -- group type = 0
+                    if nhgroups > 0 and unsigned(vwd(6 downto 2)) < nhgroups then
+                      for i in 0 to nhgroups-1 loop
+                        v.hgroups(i)(to_integer(unsigned(r.control.hartsel))) := '0';
+                      end loop;
+                      v.hgroups(to_integer(unsigned(vwd(6 downto 2))))(to_integer(unsigned(r.control.hartsel))) := '1';
+                    end if;
+                  else                       -- group type = 1
+                    if nrgroups > 0 and unsigned(vwd(6 downto 2)) < nrgroups then
+                      for i in 0 to nrgroups-1 loop
+                        v.rgroups(i)(to_integer(unsigned(r.control.hartsel))) := '0';
+                      end loop;
+                      v.rgroups(to_integer(unsigned(vwd(6 downto 2))))(to_integer(unsigned(r.control.hartsel))) := '1';
+                    end if;
+                  end if;
+                end if;
+              end if;
+            when "1000" => -- System Bus Access Control (0x38)
+              -- Read
+              vrd(31 downto 29) := "001";                       -- sbversion
+              vrd(22)           := r.sbcontrol.sbbusyerror;     
+              vrd(21)           := v.sbcontrol.sbbusy;                  
+              vrd(20)           := r.sbcontrol.sbreadonaddr;    
+              vrd(19 downto 17) := r.sbcontrol.sbaccess;        
+              vrd(16)           := r.sbcontrol.sbautoincrement; 
+              vrd(15)           := r.sbcontrol.sbreadondata; 
+              vrd(14 downto 12) := r.sbcontrol.sberror;       
+              vrd(11 downto  5) := "0100000";                   -- sbasize (32)
+              vrd( 2 downto  0) := "111";                       -- sbaccess32, sbaccess16, sbaccess8
+              -- Write
+              if wr = '1' then
+                if vwd(22) = '1' then
+                  v.sbcontrol.sbbusyerror := '0';
+                end if;
+                v.sbcontrol.sbreadonaddr     := vwd(20);
+                v.sbcontrol.sbaccess         := vwd(19 downto 17);
+                v.sbcontrol.sbautoincrement  := vwd(16);
+                v.sbcontrol.sbreadondata     := vwd(15);
+                if vwd(14 downto 12) = "111" then
+                  v.sbcontrol.sberror := "000";
+                end if;
+              end if;
+
+            when "1001" => -- System Bus Address (31 downto 0)  (0x39)
+              -- Read
+              vrd := r.sbaddress;     
+              -- Write
+              if wr = '1' then
+                if r.sbcontrol.sbbusy = '1' then
+                  v.sbcontrol.sbbusyerror := '1';
+                else
+                  v.sbaddress := vwd;
+                  if r.sbcontrol.sbbusyerror = '0' and r.sbcontrol.sbreadonaddr = '1' and r.sbcontrol.sberror = "000" then
+                    -- We need to check also here for the alignment and access errors
+                    -- precalculation is not ready until next cycle
+                    if unsigned(r.sbcontrol.sbaccess) > 2 then
+                      -- Set size error
+                      v.sbcontrol.sberror := r.psberror;
+                    elsif (r.sbcontrol.sbaccess = "001" and vwd(0) /= '0') or 
+                          (r.sbcontrol.sbaccess = "010" and vwd(1 downto 0) /= "00") then 
+                      -- Set alignement error
+                      v.sbcontrol.sberror := "011";
+                    else 
+                      -- Perform a read transfer
+                      v.sbcontrol.sbbusy := '1';
+                      dmo.sbstart        <= '1';
+                      dmo.sbwr           <= '0';
+                    end if;
+                  end if;
+                end if;
+              end if;
+
+            when "1100" => -- System Bus Data (31 downto 0)  (0x3c)
+              -- Read
+              vrd := r.sbdata(31 downto 0);
+              if r.sbcontrol.sbbusy = '1' then
+                v.sbcontrol.sbbusyerror := '1';
+              elsif r.sbcontrol.sbbusyerror = '0' and r.sbcontrol.sberror = "000" then
+                if r.psberror = "000" then
+                  if wr = '0' then
+                    if r.sbcontrol.sbreadondata = '1' then
+                      -- Perform a read transfer
+                      v.sbcontrol.sbbusy := '1';
+                      dmo.sbstart        <= '1';
+                      dmo.sbwr           <= '0';
+                    end if;
+                  else
+                    -- Perform a write transfer
+                    v.sbdata(31 downto 0) := vwd;
+                    v.sbcontrol.sbbusy    := '1';
+                    dmo.sbstart           <= '1';
+                    dmo.sbwr              <= '1';
+                  end if;
+                else
+                  -- Set error
+                  v.sbcontrol.sberror := r.psberror;
+                end if;
+              end if;
+              
+
             when "0000" | "0100" | "0101" =>
               -- Authentication Data
               -- Halt Summary 2
               -- Halt Summary 3
-              -- This registers are not implementedil
+              -- These registers are not implemented
               null;
             when others =>
               -- All the other registers are not implemented
@@ -477,6 +653,10 @@ begin
 
     -- Program buffer
     pbwrite := (others => '0');
+
+    -- System Bus Access
+    dmo.sbstart <= '0';
+    dmo.sbwr    <= '0';
 
     ---------------------------------------------------------------------------------
     -- Generate Hart Sel Signal
@@ -712,6 +892,36 @@ begin
     if r.control.haltreq = '1' then
       haltreq           := hartselmask;
     end if;
+    
+    -- Generate halt signal for group harts
+    if nhgroups > 0 then
+      clrghaltpend := (others => '1');
+      for i in 0 to NHARTS-1 loop
+        if r.halted(i) = '0' and dbgi(i).halted = '1' then
+          if r.ghaltpend(i) = '0' then
+            -- if the hart was halted setting haltreq bit to 1 
+            for j in 1 to nhgroups-1 loop
+              if r.hgroups(j)(i) = '1' then
+                v.ghaltpend     := v.ghaltpend or r.hgroups(j);
+                -- The bit of the hart that was halted setting haltreq
+                -- bit to 1 should not be set to 1
+                clrghaltpend(i) := '0';
+              end if;
+            end loop;
+            -- If hart inside of a group is already halted do nothing
+            -- If hart is resuming, halt it when it finishes resuming
+            v.ghaltpend := v.ghaltpend and not(r.halted and r.resumeack);
+          else 
+            -- if the hart was halted because another hart in the same 
+            -- halt group has halted we clear the group halt request bit
+            v.ghaltpend(i)  := '0';
+          end if; 
+        end if;
+      end loop;
+      v.ghaltpend  := v.ghaltpend and clrghaltpend;
+    end if;
+
+
 
     -- Generate resume signal
     resumereq           := (others => '0');
@@ -727,6 +937,40 @@ begin
       end loop;
     end if;
     resumereq := r.resumereq;
+
+
+    if nrgroups > 0 then
+      -- Generate resume signal for group harts
+      clrgresumepend := (others => '1');
+      for i in 0 to NHARTS-1 loop
+        if r.running(i) = '0' and dbgi(i).running = '1' then
+          if r.gresumepend(i) = '0' then
+            -- if the hart was resumed setting resumereq bit to 1 
+            for j in 1 to nrgroups-1 loop
+              if r.rgroups(j)(i) = '1' then
+                v.gresumepend := v.gresumepend or r.rgroups(j);
+                v.resumeack   := v.resumeack and (not r.rgroups(j));
+                -- The bit of the hart that was resumed setting resumreq
+                -- bit to 1 should not be set to 1
+                clrgresumepend(i) := '0'; 
+              end if;
+            end loop;
+            -- Do not resume if hart is in the halting process (running=1 and (haltreq or ghaltpen) = 1)
+            -- If hart inside of a group is already running do nothing
+            -- both conditions can be merged into the following one
+            v.gresumepend := v.gresumepend and not(r.running);
+            v.resumeack   := v.resumeack or r.running;
+          else 
+            -- if the hart was resumed because another hart in the same 
+            -- resume group has resumed we clear the group resume request bit
+            v.gresumepend(i) := '0';
+            v.resumeack(i)   := '1';
+          end if; 
+        end if;
+      end loop;
+      v.gresumepend := v.gresumepend and clrgresumepend;
+      v.resumeack   := v.resumeack and clrgresumepend;
+    end if;
 
     -- Generate reset signal
     hartreset           := (others => '0');
@@ -881,6 +1125,53 @@ begin
       end if;
     end if;
 
+
+    ---------------------------------------------------------------------------------
+    -- System Bus Access
+    ---------------------------------------------------------------------------------
+    -- When a transfer finishes:
+    -- Clear busy bit, update the read data, update error values and 
+    -- increment the address 
+    if dmi.sbfinish = '1' then
+        v.sbcontrol.sbbusy := '0';
+        if dmi.sberror = '1' then
+          v.sbcontrol.sberror := "111"; 
+        else
+          if dmi.sbdvalid = '1' then
+            v.sbdata := std_logic_vector(shift_right(unsigned(dmi.sbrdata), conv_integer(r.sbaddress(1 downto 0))*8)) ;
+          end if;
+          if r.sbcontrol.sbautoincrement = '1' then
+            case r.sbcontrol.sbaccess is
+              when "000" => --   8 bit access
+                v.sbaddress := r.sbaddress + 1;
+              when "001" => --  16 bit access
+                v.sbaddress := r.sbaddress + 2;
+              when "010" => --  32 bit access
+                v.sbaddress := r.sbaddress + 4;
+              when others =>
+                null;
+            end case;
+          end if;
+        end if;
+    end if;
+
+
+    -- Check for size access and alignement errors
+    if unsigned(r.sbcontrol.sbaccess) > 2 then
+      v.psberror := "100";
+    elsif (r.sbcontrol.sbaccess = "001" and r.sbaddress(0) /= '0') or 
+          (r.sbcontrol.sbaccess = "010" and r.sbaddress(1 downto 0) /= "00") then 
+      v.psberror := "011" ;
+    else
+      v.psberror := "000";
+    end if;
+
+
+    dmo.sbaddr   <= r.sbaddress;
+    dmo.sbwdata  <= std_logic_vector(shift_left(unsigned(r.sbdata), conv_integer(r.sbaddress(1 downto 0))*8)) ;
+    dmo.sbaccess <= r.sbcontrol.sbaccess;
+
+
     ---------------------------------------------------------------------------------
     -- Reset
     ---------------------------------------------------------------------------------
@@ -899,9 +1190,20 @@ begin
       --v.dsubr           := (others => '0');
       v.break           := '0';
       v.en              := (others => '0');
-      v.halt            := (others => '0');
-      v.resume          := (others => '0');
-      v.reset           := (others => '0');
+      --v.halt            := (others => '0');
+      --v.resume          := (others => '0');
+      --v.reset           := (others => '0');
+      v.ghaltpend       := (others => '0');
+      v.gresumepend     := (others => '0');
+      v.hgroups         := (others => (others => '0'));
+      v.hgroups(0)      := (others => '1');
+      v.rgroups         := (others => (others => '0'));
+      v.rgroups(0)      := (others => '1');
+      v.grouptype       := '0';
+      v.sbcontrol       := sbcontrol_reset;
+      v.psberror        := (others => '0');
+      v.sbaddress       := (others => '0');
+      v.sbdata          := (others => '0');
       v.hawindow        := (others => '0');
       v.data            := (others => zero32);
       v.control         := dmcontrol_reset;
@@ -928,8 +1230,9 @@ begin
 
     for i in 0 to NHARTS-1 loop
       dbgo(i).dsuen     <= r.en(i);             -- DSU Enable
-      dbgo(i).halt      <= haltreq(i);          -- Halt Request
-      dbgo(i).resume    <= resumereq(i);        -- Resume Request
+      dbgo(i).halt      <= haltreq(i) or r.ghaltpend(i);     -- Halt Request
+      dbgo(i).haltgroup <= r.ghaltpend(i);                   -- Halt Group Request
+      dbgo(i).resume    <= resumereq(i) or r.gresumepend(i); -- Resume Request
       dbgo(i).reset     <= hartreset(i);        -- Reset Request
       dbgo(i).haltonrst <= r.haltonrst(i);      -- Halt-on-reset
       dbgo(i).freeze    <= '0';                 -- Hold CPU
@@ -957,6 +1260,8 @@ begin
       r <= rin;
       if rstn = '0' then
         r <= RES_T;
+        r.hgroups(0) <= (others => '1');
+        r.rgroups(0) <= (others => '1');
         for i in 0 to NHARTS-1 loop
           r.haltonrst(i) <= r.dsubr(2);
         end loop;

@@ -31,6 +31,7 @@ library grlib;
 use grlib.amba.all;
 use grlib.config.all;
 use grlib.config_types.all;
+use grlib.stdlib.all;
 library techmap;
 use techmap.gencomp.all;
 library gaisler;
@@ -57,6 +58,7 @@ entity leon5sys is
     cmemconf : integer;
     fpuconf  : integer;
     tcmconf  : integer;
+    redconf  : integer;
     perfcfg  : integer;
     mulimpl  : integer;
     statcfg  : integer;
@@ -98,6 +100,8 @@ entity leon5sys is
     sysstat  : in  std_logic_vector(15 downto 0);
     dbgtstop : out std_ulogic;
     dbgtime  : out std_logic_vector(31 downto 0);
+    -- Block redundancy / lock-step error signal
+    brerr    : out std_ulogic;
     -- UART connection
     uarti    : in  uart_in_type;
     uarto    : out uart_out_type;
@@ -116,6 +120,7 @@ end;
 architecture hier of leon5sys is
 
   signal cpurstn : std_logic_vector(0 to ncpu-1);
+  signal brerrv  : std_logic_vector(0 to ncpu-1);
   signal cpumi   : ahb_mst_in_type;
   signal cpumo   : ahb_mst_out_vector;
   signal cpusi   : ahb_slv_in_type;
@@ -145,6 +150,27 @@ architecture hier of leon5sys is
   signal ahbso_apbctrl : ahb_slv_out_type;
   signal cpuapbix: apb_slv_in_type;
   signal apbo_uart, apbo_timer, apbo_irqmp : apb_slv_out_type;
+
+  type perfcfg_table is array (0 to 2) of integer;
+  -----------------------------------------------------------------------------
+  --       perfcfg                             0     1     2
+  --                                          HP    GP   MIN
+  constant iways_tab   : perfcfg_table := (    4,    4,    1 );
+  constant iwsize_tab  : perfcfg_table := (    4,    4,    4 );
+  constant dways_tab   : perfcfg_table := (    4,    4,    1 );
+  constant dwsize_tab  : perfcfg_table := (    4,    4,    4 );
+  constant itlbnum_tab : perfcfg_table := (   24,   16,    4 );
+  constant dtlbnum_tab : perfcfg_table := (   24,   16,    4 );
+  constant widetime_tab: perfcfg_table := (    1,    0,    0 );
+  -----------------------------------------------------------------------------
+
+  constant iways    : integer := iways_tab(perfcfg);
+  constant iwaysize : integer := iwsize_tab(perfcfg);
+  constant dways    : integer := dways_tab(perfcfg);
+  constant dwaysize : integer := dwsize_tab(perfcfg);
+  constant itlbnum  : integer := itlbnum_tab(perfcfg);
+  constant dtlbnum  : integer := dtlbnum_tab(perfcfg);
+  constant widetime : integer := widetime_tab(perfcfg);
 
   type memmap_table is array(0 to 1) of integer;
   constant haddr_apbctrl : memmap_table := (16#800#,   16#FF9#);
@@ -319,7 +345,7 @@ begin
   -- Processor(s)
   ----------------------------------------------------------------------------
   cpuloop: for c in 0 to ncpu-1 generate
-    nocgcpu: if cgen=0 generate
+    nocgcpu: if cgen=0 and redconf=0 generate
       core: cpucore5
         generic map (
           hindex   => c,
@@ -332,7 +358,12 @@ begin
           rfconf   => rfconf,
           fpuconf  => fpuconf,
           tcmconf  => tcmconf,
-          perfcfg  => perfcfg,
+          iways    => iways,
+          iwaysize => iwaysize,
+          dways    => dways,
+          dwaysize => dwaysize,
+          itlbnum  => itlbnum,
+          dtlbnum  => dtlbnum,
           mulimpl  => mulimpl,
           rstaddr  => rstaddr_cpu(memmap),
           disas    => disas,
@@ -359,8 +390,9 @@ begin
           perf  => perf(c)
           );
       gclken <= (others => '1');
+      brerrv(c) <= '0';
     end generate;
-    cgcpu: if cgen/=0 generate
+    cgcpu: if cgen/=0 and redconf=0 generate
       core: cpucore5
         generic map (
           hindex   => c,
@@ -373,7 +405,12 @@ begin
           rfconf   => rfconf,
           fpuconf  => fpuconf,
           tcmconf  => tcmconf,
-          perfcfg  => perfcfg,
+          iways    => iways,
+          iwaysize => iwaysize,
+          dways    => dways,
+          dwaysize => dwaysize,
+          itlbnum  => itlbnum,
+          dtlbnum  => dtlbnum,
           mulimpl  => mulimpl,
           rstaddr  => rstaddr_cpu(memmap),
           disas    => disas,
@@ -399,10 +436,12 @@ begin
           fpui  => fpui(c),
           perf  => perf(c)
           );
-    end generate; 
+      brerrv(c) <= '0';
+    end generate;
   end generate;
   cpu0errn <= '0' when dbgo(0).cpustate=CPUSTATE_ERRMODE and maskerrn(0)='0' else '1';
   fpuo <= (others => grfpu5_out_none);
+  brerr <= orv(brerrv);
 
   ----------------------------------------------------------------------------
   -- Debug and tracing module
@@ -422,7 +461,12 @@ begin
       dsuslvidx => nextslv+2,
       dsumstidx => ncpu+nextmst+1,
       bretryen  => breten,
-      plmdata => dbgmod_plmdata
+      plmdata => dbgmod_plmdata,
+      atkbytes => 4,
+      itentr => 256,
+      widetime => widetime,
+      cmemconf => cmemconf,
+      rfconf => rfconf
       )
     port map (
       clk      => clk,

@@ -293,6 +293,7 @@ package devices is
   constant GAISLER_AHB2AHB_STR   : amba_device_type := 16#0D2#;
   constant GAISLER_GRIOMMURV     : amba_device_type := 16#0D3#;
   constant GAISLER_SGMII_VCU118  : amba_device_type := 16#0D4#;
+  constant GAISLER_APBUART_16550 : amba_device_type := 16#0D5#;
 
 -- Sun Microsystems
 
@@ -377,7 +378,8 @@ package devices is
  
   constant BSC_CORE1 : amba_device_type := 16#001#;
   constant BSC_CORE2 : amba_device_type := 16#002#;
-  constant BSC_PMU : amba_device_type := 16#003#;
+  constant BSC_PMU    : amba_device_type := 16#003#;
+  constant BSC_SAFESU : amba_device_type := 16#004#;
 
 -- Orbita device ids
 
@@ -413,7 +415,7 @@ package devices is
   constant ACTEL_RTG4SERDES    : amba_device_type := 16#00a#;
   constant ACTEL_PFFDDR3       : amba_device_type := 16#00b#;
   constant ACTEL_PFFDDR4       : amba_device_type := 16#00c#;
-  
+
 -- NASA device ids
 
   constant NASA_EP32 : amba_device_type := 16#001#;
@@ -462,7 +464,7 @@ package devices is
   constant SSTL_HDLC            : amba_device_type := 16#001#;
   constant SSTL_INICAN          : amba_device_type := 16#002#;
   constant SSTL_ZERO_MEM        : amba_device_type := 16#003#;
-  
+
 -- Contribution library IDs
 
   constant CONTRIB_CORE1 : amba_device_type := 16#001#;
@@ -511,10 +513,13 @@ package devices is
   constant MICROSEMI_M2GL_EVAL   : system_device_type := 16#0560#;
   constant XILINX_SP601          : system_device_type := 16#0601#;
   constant XILINX_ML605          : system_device_type := 16#0605#;
+  constant LEON_LATTICE_NEXUS    : system_device_type := 16#0800#;
+  constant GAISLER_GR740MINI     : system_device_type := 16#0801#;
   constant XILINX_AC701          : system_device_type := 16#A701#;
   constant XILINX_KC705          : system_device_type := 16#A705#;
   constant XILINX_VC707          : system_device_type := 16#A707#;
   constant ESA_SSDP              : system_device_type := 16#ADA2#;
+
 -- pragma translate_off
 
   constant GAISLER_DESC : vendor_description := "Frontgrade Gaisler      ";
@@ -729,6 +734,7 @@ package devices is
     GAISLER_GRAPLIC       => "RISC-V APLIC                    ",
     GAISLER_IMSIC         => "RISC-V IMSIC                    ",
     GAISLER_L2CL          => "L2-Cache Controller - Lite      ",
+    GAISLER_APBUART_16550 => "Generic UART 16550              ",
     others                => "Unknown Device                  ");
 
   constant gaisler_lib : vendor_library_type := (
@@ -928,7 +934,7 @@ package devices is
      vendordesc      => SSTL_DESC,
      device_table    => sstl_device_table
    );
-  
+
   constant SYNOPSYS_DESC : vendor_description := "Synopsys Inc.           ";
 
   constant synopsys_device_table : device_table_type := (
@@ -996,10 +1002,11 @@ package devices is
     );
 
   constant bsc_device_table : device_table_type := (
-    BSC_CORE1 => "Core 1                          ",
-    BSC_CORE2 => "Core 2                          ",
-    BSC_PMU   => "AHB Performance Monitoring Unit ",
-    others    => "Unknown Device                  ");
+    BSC_CORE1   => "Core 1                          ",
+    BSC_CORE2   => "Core 2                          ",
+    BSC_PMU     => "AHB Performance Monitoring Unit ",
+    BSC_SAFESU  => "SafeSU - AHB Statistics Unit    ",
+    others      => "Unknown Device                  ");
 
   constant BSC_DESC : vendor_description := "BSC                     ";
 
@@ -1123,7 +1130,7 @@ package devices is
 
   constant jhuapl_ser_device_table : device_table_type := (
     others => "Unknown Device                  ");
-  
+
   constant jhuapl_ser_lib : vendor_library_type := (
     vendorid     => VENDOR_JHUAPL_SER,
     vendordesc   => JHUAPL_SER_DESC,
@@ -1134,7 +1141,7 @@ package devices is
 
   constant jhuapl_ses_device_table : device_table_type := (
     others => "Unknown Device                  ");
-  
+
   constant jhuapl_ses_lib : vendor_library_type := (
     vendorid     => VENDOR_JHUAPL_SES,
     vendordesc   => JHUAPL_SES_DESC,
@@ -1145,7 +1152,7 @@ package devices is
 
   constant semiblocks_device_table : device_table_type := (
     others => "Unknown Device                  ");
-  
+
   constant semiblocks_lib : vendor_library_type := (
     vendorid     => VENDOR_SEMIBLOCKS,
     vendordesc   => SEMIBLOCKS_DESC,
@@ -1156,7 +1163,7 @@ package devices is
 
   constant nec_device_table : device_table_type := (
     others => "Unknown Device                  ");
-  
+
   constant nec_lib : vendor_library_type := (
     vendorid     => VENDOR_NEC,
     vendordesc   => NEC_DESC,
@@ -1305,6 +1312,7 @@ package devices is
     VENDOR_OPENCHIP     => openchip_lib,
     VENDOR_OPENCORES    => opencores_lib,
     VENDOR_CONTRIB      => contrib_lib,
+    VENDOR_BSC          => bsc_lib,
     VENDOR_DLR          => dlr_lib,
     VENDOR_EONIC        => eonic_lib,
     VENDOR_TELECOMPT    => telecompt_lib,
@@ -1368,9 +1376,10 @@ package devices is
     NOELV_MICROCHIP_PF     => "NOEL-V Microsemi Polarfire SoC  ",
     NOELV_DIGILENT_ARTY    => "NOEL-V Digilent Arty-A7 SoC     ",
     NOELV_SOC              => "NOEL-V SoC                      ",
+    LEON_LATTICE_NEXUS     => "LEON on Lattice Nexus FPGA      ",
+    GAISLER_GR740MINI      => "Lattice CertusPro on GR740-MINI ",
     others                 => "Unknown system                  ");
 
 -- pragma translate_on
 
 end;
-

@@ -35,11 +35,14 @@ use grlib.stdlib.tost;
 use grlib.stdlib.tost_bits;
 use grlib.stdlib.orv;
 library gaisler;
+use gaisler.noelvtypes.all;
 use gaisler.noelv.XLEN;
+use gaisler.noelv.GEILEN;
 use gaisler.utilnv.to_bit;
 use gaisler.utilnv.cond;
 use gaisler.utilnv.get;
 use gaisler.utilnv.get_hi;
+use gaisler.utilnv.get_lo;
 use gaisler.utilnv.b2i;
 use gaisler.utilnv.u2i;
 use gaisler.utilnv.s2vec;
@@ -48,19 +51,15 @@ use gaisler.utilnv.u2vec;
 use gaisler.utilnv.uext;
 use gaisler.utilnv.sext;
 use gaisler.utilnv.uadd;
+use gaisler.utilnv.single_1;
 use gaisler.utilnv.all_0;
 use gaisler.utilnv.all_1;
+use gaisler.utilnv.single_1;
 use gaisler.noelvint.nv_csr_in_type;
-use gaisler.noelvint.PMPENTRIES;
-use gaisler.noelvint.PMPADDRBITS;
-use gaisler.noelvint.MAX_TRIGGER_NUM;
 use gaisler.noelvint.PMPPRECALCRES;
-use gaisler.noelvint.cause_type;
-use gaisler.noelvint.int_cause_type;
 use gaisler.noelvint.trace_type;
 use gaisler.noelvint.trace_rst;
-use gaisler.noelvint.pmpaddr_type;
-use gaisler.noelvint.pmpaddrzero;
+use gaisler.noelvint.pmpcfg_vec_type;
 use gaisler.noelvint.pmpaddr_vec_type;
 use gaisler.noelvint.pmp_precalc_type;
 use gaisler.noelvint.pmp_precalc_vec;
@@ -76,53 +75,10 @@ use gaisler.noelvint.nv_ras_out_none;
 
 package nvsupport is
 
-  subtype word64 is std_logic_vector(63 downto 0);
-  subtype word32 is std_logic_vector(31 downto 0);
-  subtype word16 is std_logic_vector(15 downto 0);
-  subtype word8  is std_logic_vector( 7 downto 0);
-  subtype word5  is std_logic_vector( 4 downto 0);
-  subtype word4  is std_logic_vector( 3 downto 0);
-  subtype word3  is std_logic_vector( 2 downto 0);
-  subtype word2  is std_logic_vector( 1 downto 0);
-  subtype wordx  is std_logic_vector(XLEN - 1 downto 0);
-  subtype wordx1 is std_logic_vector(XLEN downto 0);
-  subtype word   is word32;
-
-  constant zerow16 : word16 := (others => '0');
-  constant zerow64 : word64 := (others => '0');
-  constant zerox   : wordx  := (others => '0');
-  constant zerow   : word   := (others => '0');
-
-  type word64_arr is array (integer range <>) of word64;
-  type word16_arr is array (integer range <>) of word16;
-  type word8_arr  is array (integer range <>) of word8;
-  type word_arr   is array (integer range <>) of word;
-  type wordx_arr  is array (integer range <>) of wordx;
-
   constant FUSELBITS   : integer := 12;
   subtype  fuseltype  is std_logic_vector(FUSELBITS - 1 downto 0);
 
-  subtype  category_t is std_logic_vector(9 downto 0);
-
-  type     x_type is (x_first,
-                      x_single_issue, x_late_alu, x_late_branch, x_muladd,
-                      x_fpu_debug, x_dtcm, x_itcm,
-                      x_rv64, x_mode_u, x_mode_s,
-                      x_noelv, x_m, x_f, x_d,
-                      x_a, x_c, x_h, x_sscofpmf,
-                      x_zba, x_zbb, x_zbc, x_zbs,
-                      x_zbkb, x_zbkc, x_zbkx,
-                      x_zcb,
-                      x_time, x_sstc, x_imsic, 
-                      x_smepmp, x_smrnmi, x_smaia, x_ssaia, 
-                      x_smstateen, 
-                      x_zicbom, x_zicond, x_zimops, 
-                      x_zfa, x_zfh, x_zfhmin, x_zfbfmin,
-                      x_last);
-  subtype  extension_type is std_logic_vector(x_type'pos(x_first) + 1 to x_type'pos(x_last) - 1);
-  constant extension_none  : extension_type := (others => '0');
-  constant extension_all   : extension_type := (others => '1');
-  constant config_all      : extension_type;
+  subtype  category_t is std_logic_vector(10 downto 0);
 
 
   function extension(item : x_type) return extension_type;
@@ -139,11 +95,9 @@ package nvsupport is
                    inst   : word) return reg_t;
   function rs2_gen(active : extension_type;
                    inst   : word) return reg_t;
--- pragma translate_off
   -- Some simulation code requires this.
   -- Under simulation, matching all possible instructions does not hurt.
   function rd_gen(inst : word) return std_ulogic;
--- pragma translate_on
 
 
   function pc2xlen(pc_in : std_logic_vector) return wordx;
@@ -164,18 +118,17 @@ package nvsupport is
 
   constant iword_none : iword_type := ("00", zerow, zerow16, "000", '0');
 
-  type iword_tuple_type   is array (integer range <>) of iword_type;
+  type    iword_tuple_type is array (integer range <>) of iword_type;
+  subtype iword_pair_type  is iword_tuple_type(0 to 1);
 
   -- Prediction -----------------------------------------------------------------
   type prediction_type is record
     taken       : std_ulogic;                          -- branch predicted to be taken
---    dir         : std_logic_vector(bhti.wdata'range);  -- bht branch output
     hit         : std_ulogic;                          -- branch has been found in BTB
   end record;
 
   constant prediction_none : prediction_type := (
     taken       => '0',
---    dir         => (others => '0'),
     hit         => '0'
     );
 
@@ -185,7 +138,6 @@ package nvsupport is
   -- The instruction queue is a single-entry instruction buffer located in the
   -- decode stage.
   type iqueue_type is record
---    pc              : pctype;           -- program counter
     pc              : wordx;            -- program counter
     inst            : iword_type;       -- instruction
     cinst           : word16;           -- compressed instruction
@@ -199,7 +151,6 @@ package nvsupport is
   end record;
 
   constant iqueue_none : iqueue_type := (
---qqq    pc              => PC_RESET,
     pc              => zerox,
     inst            => ("00", zerow, (others => '0'), "000", '0'),
     cinst           => zerow16,
@@ -219,8 +170,6 @@ package nvsupport is
     branch : integer range 0 to 1;
     memory : integer range 0 to 1;
   end record;
-
-  constant HWPERFMONITORS       : integer := 29;
 
   type csr_hstatus_type is record
     vsxl        : word2;
@@ -250,6 +199,8 @@ package nvsupport is
 
   subtype csr_tdata_vector is wordx_arr(0 to MAX_TRIGGER_NUM - 1);
   subtype csr_tinfo_vector is word16_arr(0 to MAX_TRIGGER_NUM - 1);
+  subtype csr_mhcontext_type is std_logic_vector(13 downto 0);
+  subtype csr_scontext_type is std_logic_vector(33 downto 0);
   type csr_tcsr_type is record
     tselect     : std_logic_vector(log2(MAX_TRIGGER_NUM) - 1 downto 0);
     tdata1      : csr_tdata_vector;
@@ -257,8 +208,8 @@ package nvsupport is
     tdata3      : csr_tdata_vector;
     tinfo       : csr_tinfo_vector;
     tcontrol    : word8;
-    mcontext    : wordx;
-    scontext    : wordx;
+    mhcontext   : csr_mhcontext_type;
+    scontext    : csr_scontext_type;
   end record;
 
   constant csr_tcsr_rst : csr_tcsr_type := (
@@ -266,10 +217,11 @@ package nvsupport is
     tdata1      => (others => (others => '0')),
     tdata2      => (others => (others => '0')),
     tdata3      => (others => (others => '0')),
-    tinfo       => (others => (2 => '1', others => '0')),
+    tinfo       => (others => (others => '0')),
     tcontrol    => (others => '0'),
-    mcontext    => (others => '0'),
+    mhcontext   => (others => '0'),
     scontext    => (others => '0')
+
     );
 
   type csr_dcsr_type is record
@@ -309,7 +261,7 @@ package nvsupport is
     );
 
   type csr_dfeaturesen_type is record
-    tpbuf_en     : std_ulogic;                   -- Include program buffer execution in trace/sim-disas
+    tpbuf_en     : std_ulogic;   -- Include program buffer execution in trace/sim-disas
     nostream     : std_ulogic;   -- Do not make use of stream buffer for instruction fetch
     mmu_adfault  : std_ulogic;   -- Take page fault on access/modify.
     mmu_sptfault : std_ulogic;   -- Take page fault on any sPT walk.
@@ -356,6 +308,19 @@ package nvsupport is
     );
 
 
+  constant HWPERFMONITORS       : integer := 29;
+
+  -- Set of counters with advanced event filtering (AND of multiple events)
+  constant MHPCOUNT_FIL         : std_logic_vector (HWPERFMONITORS + 3 - 1 downto 0) := (others => '1');
+  -- Set number of events Classes
+  constant MHPEVENT_C         : integer:= 16;
+  -- Set maximum number of Events in each Class
+  constant MHPEVENT_EC       : integer:= 32;
+  -- Set the pourpouse of each event class
+  constant PIPELINE_EV_0     : integer:= 0;
+  constant CACHETLB_EV_0     : integer:= 1;
+  constant FPU_EV_0          : integer:= 2;
+  constant DBG_EV            : integer:= MHPEVENT_C-1;
   -- 0-2 of hpmcounter_type and hpmevent_vec are not used!
   subtype hpmcounter_type is word64_arr(0 to HWPERFMONITORS + 3 - 1);
   type hpmevent_type is record
@@ -365,12 +330,17 @@ package nvsupport is
     uinh     : std_ulogic;
     vsinh    : std_ulogic;
     vuinh    : std_ulogic;
-    event    : word8;
-  end record;
+    class    : std_logic_vector(log2(MHPEVENT_C)-1 downto 0); -- Class  Event selector
+    events   : std_logic_vector(MHPEVENT_EC-1 downto 0); -- Class  Event selector
+  end record ;
 
-  constant hpmevent_none : hpmevent_type := ('0', '0', '0', '0', '0', '0', (others => '0'));
+  constant hpmevent_none : hpmevent_type := ('0', '0', '0', '0', '0', '0', (others => '0'), (others => '0'));
 
   type hpmevent_vec is array (0 to HWPERFMONITORS + 3 - 1) of hpmevent_type;
+  -- Define event array type
+  type evt_type is array (MHPEVENT_C-1 downto 0) of std_logic_vector (MHPEVENT_EC-1 downto 0);
+  constant evt_none_type : evt_type := ((others => (others => '0')));
+  function filter_hpmevent (hpmevent : hpmevent_type; evt : evt_type; cnt : integer) return std_logic;
 
   -- CSR Type -----------------------------------------------------------------
   type csr_status_type is record
@@ -426,7 +396,7 @@ package nvsupport is
     gva         => '0'
     );
 
-  
+
   type csr_mnstatus_type is record
     mnpp  : std_logic_vector(1 downto 0);
     mnpv  : std_ulogic;
@@ -439,13 +409,14 @@ package nvsupport is
   );
 
   type csr_mstateen0_type is record
-    -- high 32 bits
-    stateen  : std_ulogic;
-    envcfg   : std_ulogic;
-    iselect  : std_ulogic;
-    aia      : std_ulogic;
-    imsic    : std_ulogic;
-    -- low 32 bits
+    -- High 32 bits
+    stateen  : std_ulogic;  -- 63
+    envcfg   : std_ulogic;  -- 62
+    iselect  : std_ulogic;  -- 60
+    aia      : std_ulogic;  -- 59
+    imsic    : std_ulogic;  -- 58
+    ctx      : std_ulogic;  -- 57
+    -- Low 32 bits
     -- no bits allocated so far
   end record;
   constant csr_mstateen0_rst : csr_mstateen0_type := (
@@ -453,7 +424,8 @@ package nvsupport is
     envcfg   => '0',
     iselect  => '0',
     aia      => '0',
-    imsic    => '0'
+    imsic    => '0',
+    ctx      => '0'
   );
 
   -- Type for mstateen/hstateen CSRs whose only writable bit is 63
@@ -504,15 +476,6 @@ package nvsupport is
   );
 
 
-  type lpl_type is record
-    ll : std_logic_vector(8 downto 0);
-    ml : std_logic_vector(7 downto 0);
-    ul : std_logic_vector(7 downto 0);
-  end record;
-  constant lpl_rst : lpl_type := (
-    (others => '0'), (others => '0'), (others => '0')
-  );
-
   type csr_hvictl_type is record
     vti    : std_ulogic;
     iid    : std_logic_vector(11 downto 0);
@@ -525,17 +488,28 @@ package nvsupport is
     ipriom => '0',
     iprio  => (others => '0'));
 
+  -- (V)S/MISELECT are required to hold at least 12 low bits.
+  -- The top bit (XLEN - 1) signifies custom registers.
+  -- For now, assume the minimum is enough.
+  type select_t is record
+    custom : std_ulogic;
+    sel    : std_logic_vector(11 downto 0);
+  end record;
+  constant select_none : select_t := ('0', (others => '0'));
+
  type csr_reg_type is record
     -- Machine ISA (needs to be configured before use!)
     misa        : wordx;
-    -- Privileged Level (not addressable as a CSR register)
+    -- Privilege Level (not addressable as a CSR register)
     prv         : priv_lvl_type;
     -- Virtualization mode
     v           : std_ulogic;
-    -- Expecting landing pad
-    elp         : std_ulogic;
+    -- FPU enabled (pre-calculated)
+    fpu_enabled : boolean;
+    -- Envcfg (pre-calculated)
+    envcfg      : csr_envcfg_type;
     -- User Floating-Point CSRs
-    fctrl       : std_logic_vector(16 downto 8);  -- qqq Non-standard!
+    fctrl       : std_logic_vector(16 downto 8);
     frm         : std_logic_vector(7 downto 5);
     fflags      : word5;
     -- Hypervisor
@@ -563,17 +537,18 @@ package nvsupport is
     vstvec      : wordx;
     vsscratch   : wordx;
     vsepc       : wordx;
-    vscause     : wordx;
+    vscause     : cause_type;
     vstval      : wordx;
     vstimecmp   : word64;
     vsatp       : wordx;
+    -- VS Indirect CSR Access (Sscsrind)
+    vsiselect   : select_t;
+    vsireg      : wordx;
     -- VS AIA (Smaia and Ssaia)
     hvien       : wordx;
     hvictl      : csr_hvictl_type;
     hviprio1    : wordx;
     hviprio2    : wordx;
-    vsiselect   : wordx;
-    vsireg      : wordx;
     vstopei     : wordx;
     vstopi      : wordx;
     -- Registers to interface with IMSIC
@@ -587,12 +562,13 @@ package nvsupport is
     -- Supervisor Trap Handling
     sscratch    : wordx;
     sepc        : wordx;
-    scause      : wordx;
+    scause      : cause_type;
     stval       : wordx;
     stimecmp    : word64;
-    -- Supervisor AIA (Smaia or Ssaia)
-    siselect    : wordx;
+    -- VS Indirect CSR Access (Sscsrind)
+    siselect    : select_t;
     sireg       : wordx;
+    -- Supervisor AIA (Smaia or Ssaia)
     stopei      : wordx;
     stopi       : wordx;
     -- Registers to interface with IMSIC
@@ -612,22 +588,23 @@ package nvsupport is
     -- Machine Trap Handling
     mscratch    : wordx;
     mepc        : wordx;
-    mcause      : wordx;
+    mcause      : cause_type;
     mtval       : wordx;
     mip         : wordx;
     -- RNMI Trap Handling
     mnscratch   : wordx;
     mnepc       : wordx;
-    mncause     : wordx;
+    mncause     : cause_type;
     mnstatus    : csr_mnstatus_type;
     -- Machine Smstateen
     mstateen0   : csr_mstateen0_type;
     mstateen1   : csr_mstateen_void_type;
     mstateen2   : csr_mstateen_void_type;
     mstateen3   : csr_mstateen_void_type;
-    -- Machine AIA (Smaia)
-    miselect    : wordx;
+    -- Machine Indirect CSR Access (Smcsrind)
+    miselect    : select_t;
     mireg       : wordx;
+    -- Machine AIA (Smaia)
     mtopei      : wordx;
     mtopi       : wordx;
     mvien       : wordx;
@@ -644,10 +621,9 @@ package nvsupport is
     menvcfg     : csr_envcfg_type;
     mseccfg     : csr_seccfg_type;
     -- Machine Protection and Translation
-    pmpcfg0     : word64;
-    pmpcfg2     : word64;
+    pmpcfg      : pmpcfg_vec_type;
     pmpaddr     : pmpaddr_vec_type;
-    pmp_precalc : pmp_precalc_vec(0 to PMPENTRIES - 1);
+    pmp_precalc : pmp_precalc_vec(PMPPRECALCRES'range);
     -- Machine Counter/Timers
     mcycle      : word64;
     mtime       : word64;
@@ -668,7 +644,6 @@ package nvsupport is
     -- Custom Read/Write Registers
     dfeaturesen : csr_dfeaturesen_type;
     cctrl       : csr_out_cctrl_type;
-    lpl         : lpl_type;
     ssp         : wordx;
   end record;
 
@@ -676,7 +651,8 @@ package nvsupport is
     misa        => zerox,
     prv         => PRIV_LVL_M,
     v           => '0',
-    elp         => '0',
+    fpu_enabled => false,
+    envcfg      => csr_envcfg_rst,
     fctrl       => (others => '0'),
     frm         => (others => '0'),
     fflags      => (others => '0'),
@@ -702,16 +678,16 @@ package nvsupport is
     vstvec      => zerox,
     vsscratch   => zerox,
     vsepc       => zerox,
-    vscause     => zerox,
+    vscause     => (others => '0'),
     vstval      => zerox,
     vstimecmp   => zerow64,
     vsatp       => zerox,
+    vsiselect   => select_none,
+    vsireg      => zerox,
     hvien       => zerox,
     hvictl      => csr_hvictl_rst,
     hviprio1    => zerox,
     hviprio2    => zerox,
-    vsiselect   => zerox,
-    vsireg      => zerox,
     vstopei     => zerox,
     vstopi      => zerox,
     vsirego     => zerox,
@@ -722,10 +698,10 @@ package nvsupport is
     senvcfg     => csr_envcfg_rst,
     sscratch    => zerox,
     sepc        => zerox,
-    scause      => zerox,
+    scause      => (others => '0'),
     stval       => zerox,
     stimecmp    => zerow64,
-    siselect    => zerox,
+    siselect    => select_none,
     sireg       => zerox,
     stopei      => zerox,
     stopi       => zerox,
@@ -741,18 +717,18 @@ package nvsupport is
     mcounteren  => zerow,
     mscratch    => zerox,
     mepc        => zerox,
-    mcause      => zerox,
+    mcause      => (others => '0'),
     mtval       => zerox,
     mip         => zerox,
     mnscratch   => zerox,
     mnepc       => zerox,
-    mncause     => zerox,
+    mncause     => (others => '0'),
     mnstatus    => csr_mnstatus_rst,
-    mstateen0   => csr_mstateen0_rst, 
+    mstateen0   => csr_mstateen0_rst,
     mstateen1   => csr_mstateen_void_rst,
     mstateen2   => csr_mstateen_void_rst,
     mstateen3   => csr_mstateen_void_rst,
-    miselect    => zerox,
+    miselect    => select_none,
     mireg       => zerox,
     mtopei      => zerox,
     mtopi       => zerox,
@@ -765,8 +741,7 @@ package nvsupport is
     mtinst      => zerox,
     menvcfg     => csr_envcfg_rst,
     mseccfg     => csr_seccfg_rst,
-    pmpcfg0     => zerow64,
-    pmpcfg2     => zerow64,
+    pmpcfg      => (others => (others => '0')),
     pmpaddr     => (others => pmpaddrzero),
     pmp_precalc => PMPPRECALCRES,
     mcycle      => zerow64,
@@ -783,7 +758,6 @@ package nvsupport is
     cctrl       => csr_out_cctrl_rst,
     trace       => trace_rst,
     dfeaturesen => csr_dfeaturesen_rst,
-    lpl         => lpl_rst,
     ssp         => zerox
     );
 
@@ -809,20 +783,20 @@ package nvsupport is
   constant SZDBL        : word2 := "11";
 
   -- Functional Units Encoding: one-hot encoding for easier decode.
-  constant NONE         : fuseltype := "000000000000";
-  constant ALU          : fuseltype := "000000000001";  -- ALU
-  constant BRANCH       : fuseltype := "000000000010";  -- Branch Unit
-  constant JAL          : fuseltype := "000000000100";  -- JAL
-  constant JALR         : fuseltype := "000000001000";  -- JALR
-  constant FLOW         : fuseltype := "000000001100";  -- Jump (JAL/JALR)
-  constant MUL          : fuseltype := "000000010000";  -- Mul/Div
-  constant LD           : fuseltype := "000000100000";  -- Load
-  constant ST           : fuseltype := "000001000000";  -- Store
-  constant AMO          : fuseltype := "000010000000";  -- Atomics
-  constant FPU          : fuseltype := "000100000000";  -- From FPU
-  constant ALU_SPECIAL  : fuseltype := "001000000000";  -- Only for early ALU in lane 0!
-  constant DIAG         : fuseltype := "010000000000";  -- Diagnostic cache load/store
-  constant NOT_LATE     : fuseltype := "111111111100";  -- All except ALU and Branch Unit
+  constant NONE         : fuseltype;
+  constant ALU          : fuseltype;  -- ALU
+  constant BRANCH       : fuseltype;  -- Branch Unit
+  constant JAL          : fuseltype;  -- JAL
+  constant JALR         : fuseltype;  -- JALR
+  constant FLOW         : fuseltype;  -- Jump (JAL/JALR)
+  constant MUL          : fuseltype;  -- Mul/Div
+  constant LD           : fuseltype;  -- Load
+  constant ST           : fuseltype;  -- Store
+  constant AMO          : fuseltype;  -- Atomics
+  constant FPU          : fuseltype;  -- From FPU
+  constant ALU_SPECIAL  : fuseltype;  -- Only for early ALU in lane 0!
+  constant DIAG         : fuseltype;  -- Diagnostic cache load/store
+  constant NOT_LATE     : fuseltype;  -- All except ALU and Branch Unit
 
 
   -- CSR Operation
@@ -842,6 +816,23 @@ package nvsupport is
                         rvc_pc           : in  std_logic_vector;
                         valid_in         : in  std_ulogic;
                         fpu_en           : in  boolean;
+                        inst_out         : out iword_tuple_type;
+                        comp_ill         : out word2;
+                        hold_out         : out std_ulogic;
+                        npc_out          : out word3;
+                        valid_out        : out std_logic_vector;
+                        buffer_first_out : out std_logic;  -- buffer first instruction
+                        buffer_sec_out   : out std_logic;  -- buffer second instruction
+                                                           --  if not issued
+                        buffer_third_out : out std_logic;  -- buffer the third instruction
+                        buffer_inst      : out iword_type;
+                        buff_comp_ill    : out std_logic;
+                        unaligned_out    : out std_ulogic);
+
+  procedure no_rvc_aligner(active        : in  extension_type;
+                        inst_in          : in  iword_tuple_type;
+                        rvc_pc           : in  std_logic_vector;
+                        valid_in         : in  std_ulogic;
                         inst_out         : out iword_tuple_type;
                         comp_ill         : out word2;
                         hold_out         : out std_ulogic;
@@ -902,6 +893,7 @@ package nvsupport is
                             tval_ill0 : in  boolean;
                             inst_in   : in  word;
                             cinst_in  : in  word16;
+                            comp      : in  std_ulogic;
                             pc_in     : in  std_logic_vector;
                             comp_ill  : in  std_ulogic;
                             misa_in   : in  wordx;
@@ -962,16 +954,16 @@ package nvsupport is
   function csr_read_only(active  : extension_type; inst : word) return boolean;
   function csr_write_only(active : extension_type; inst : word) return boolean;
 
-  function is_sfence_vma(inst : word) return boolean;
-  function is_hfence_vvma(inst : word) return boolean;
-  function is_hfence_gvma(inst : word) return boolean;
+  function is_sfence_vma(active : extension_type; inst : word) return boolean;
+  function is_hfence_vvma(active : extension_type; inst : word) return boolean;
+  function is_hfence_gvma(active : extension_type; inst : word) return boolean;
   function is_tlb_fence(active : extension_type;
                         inst   : word) return boolean;
   function is_hlv(inst : word) return boolean;
   function is_hsv(inst : word) return boolean;
   function is_hlsv(inst : word) return boolean;
   function is_fence_i(inst : word) return boolean;
-  function is_diag(inst : word) return boolean;
+  function is_diag(active : extension_type; inst : word) return boolean;
   function is_diag_store(inst : word) return boolean;
   function is_csr_access(inst : word) return boolean;
   function is_csr(active : extension_type;
@@ -981,6 +973,7 @@ package nvsupport is
   function is_xret(inst : word) return boolean;
   function is_system0(inst : word) return boolean;
   function is_system1(inst : word) return boolean;
+  function is_wfi(inst :word) return boolean;
   function is_cbo(inst : word) return boolean;
 -- pragma translate_off
   -- Some simulation code requires this.
@@ -1000,9 +993,12 @@ package nvsupport is
   function inst_addr_misaligned(active : extension_type;
                                 pc     : std_logic_vector) return boolean;
 
-  function pmpcfg(pmp_entries : integer range 0 to 16;
-                  csr : csr_reg_type; n : natural) return word8;
-  function pc_valid(inst : word) return std_ulogic;
+  function pmpcfg(pmp_entries : integer range pmpcfg_vec_type'range;
+                  cfg : pmpcfg_vec_type; n : natural) return word8;
+  function pmpcfg(cfg : pmpcfg_vec_type; first : integer; last : integer) return wordx;
+
+  function pc_valid(
+                    inst : word) return std_ulogic;
 
   procedure branch_unit(active    : in  extension_type;
                         op1_in    : in  wordx;
@@ -1064,6 +1060,7 @@ package nvsupport is
   constant XC_INST_INST_PAGE_FAULT      : cause_type;
   constant XC_INST_LOAD_PAGE_FAULT      : cause_type;
   constant XC_INST_STORE_PAGE_FAULT     : cause_type;
+  constant XC_INST_SOFTWARE_CHECK       : cause_type;
   constant XC_INST_INST_G_PAGE_FAULT    : cause_type;
   constant XC_INST_LOAD_G_PAGE_FAULT    : cause_type;
   constant XC_INST_VIRTUAL_INST         : cause_type;
@@ -1085,23 +1082,28 @@ package nvsupport is
   constant IRQ_M_EXTERNAL               : cause_type;
   constant IRQ_SG_EXTERNAL              : cause_type;
   constant IRQ_LCOF                     : cause_type;
+  constant IRQ_NMI                      : cause_type;
 
   -- Reset Codes
   constant RST_HARD_ALL                 : cause_type;
   constant RST_ASYNC                    : cause_type;
 
   -- Interrupt code priority
-  type     cause_arr is array (integer range <>) of cause_type;
-  constant cause_prio                   : cause_arr(0 to 15);
+  type     cause_arr     is array (integer range <>) of cause_type;
   type     int_cause_arr is array (integer range <>) of int_cause_type;
-  
-  -- Resusmable Non-Maskable Interrupts trap address
-  constant rnmi_int_trap_addr : word64 := x"0000000040010000";
-  constant rnmi_xc_trap_addr  : word64 := x"0000000040011000";
+
+  constant cause_prio                   : cause_arr(0 to 15);
+  constant int_cause2prio               : int_cause_arr(0 to 31);
+
+
+  -- Indirect CSR Access
+  function selector2wordx(v : select_t) return wordx;
+  function wordx2selector(v : wordx) return select_t;
+  function is_custom(v : select_t) return boolean;
 
   -- AIA interrupt files exception calculation
-  function intFile_addrExcp(addr : std_logic_vector; imsic : integer; is_rv64 : boolean) return std_logic;
-  function GintFile_addrExcp(addr : std_logic_vector; imsic : integer; is_rv64 : boolean) return std_logic;
+  function intFile_addrExcp(sel : select_t; imsic : integer; is_rv64 : boolean) return std_logic;
+  function GintFile_addrExcp(sel : select_t; imsic : integer; is_rv64 : boolean) return std_logic;
 
   constant CSR_VENDORID                 : wordx := zerox(zerox'high downto 12) & x"324"; -- Gaisler JEDEC ID (0xA4, bank 7)
   constant CSR_ARCHID                   : wordx := (others => '0');
@@ -1128,9 +1130,9 @@ package nvsupport is
   function tinst_vs_pt_read return word;
   function tinst_vs_pt_write return word;
 
-
   -- Hardware Performance Monitors
-  constant CSR_HPM_HOLD                 :  integer := 1;
+  -- PIPELINE_EV_0
+  constant CSR_HPM_HOLD                 :  integer := 0;
   constant CSR_HPM_HOLD_ISSUE           :  integer := CSR_HPM_HOLD              + 1;
   constant CSR_HPM_SINGLE_ISSUE         :  integer := CSR_HPM_HOLD_ISSUE        + 1;
   constant CSR_HPM_DUAL_ISSUE           :  integer := CSR_HPM_SINGLE_ISSUE      + 1;
@@ -1142,11 +1144,22 @@ package nvsupport is
   constant CSR_HPM_JALR                 :  integer := CSR_HPM_STORE_B2B         + 1;
   constant CSR_HPM_JAL                  :  integer := CSR_HPM_JALR              + 1;
   constant CSR_HPM_RAS_HIT              :  integer := CSR_HPM_JAL               + 1;
-  constant CSR_HPM_END_IU               :  integer := CSR_HPM_RAS_HIT;
-  constant CSR_HPM_AFTER_IU             :  integer := CSR_HPM_END_IU +
-                                                      1;
-
-  constant CSR_HPM_ICACHE_MISS          :  integer := CSR_HPM_AFTER_IU;
+  constant CSR_HPM_CPU_CYCLES           :  integer := CSR_HPM_RAS_HIT           + 1;
+  constant CSR_HPM_IDLE_CYCLES_FRONTEND :  integer := CSR_HPM_CPU_CYCLES        + 1;
+  constant CSR_HPM_IDLE_CYCLES_BACKEND  :  integer := CSR_HPM_IDLE_CYCLES_FRONTEND + 1;
+    --constant CSR_HPM_END_IU               :  integer := CSR_HPM_CPU_CYCLES;
+  constant CSR_HPM_SFENCE_VMA           :  integer := CSR_HPM_IDLE_CYCLES_BACKEND  + 1;
+  constant CSR_HPM_HFENCE_VVMA          :  integer := CSR_HPM_SFENCE_VMA        + 1;
+  constant CSR_HPM_HFENCE_GVMA          :  integer := CSR_HPM_HFENCE_VVMA       + 1;
+  constant CSR_HPM_TLB_FENCE_00         :  integer := CSR_HPM_HFENCE_GVMA       + 1;
+  constant CSR_HPM_TLB_FENCE_01         :  integer := CSR_HPM_TLB_FENCE_00      + 1;
+  constant CSR_HPM_TLB_FENCE_10         :  integer := CSR_HPM_TLB_FENCE_01      + 1;
+  constant CSR_HPM_TLB_FENCE_11         :  integer := CSR_HPM_TLB_FENCE_10      + 1;
+  constant CSR_HPM_IU_INTERNALS         :  integer := CSR_HPM_TLB_FENCE_11      + 1;
+  constant CSR_HPM_AFTER_IU             :  integer :=
+                                                      0;
+  -- CACHETLB_EV_0
+  constant CSR_HPM_ICACHE_MISS          :  integer := 0;
   constant CSR_HPM_DCACHE_MISS          :  integer := CSR_HPM_ICACHE_MISS       + 1;
   constant CSR_HPM_ITLB_MISS            :  integer := CSR_HPM_DCACHE_MISS       + 1;
   constant CSR_HPM_DTLB_MISS            :  integer := CSR_HPM_ITLB_MISS         + 1;
@@ -1162,9 +1175,13 @@ package nvsupport is
   constant CSR_HPM_DTLB_ENTRY_FLUSH     :  integer := CSR_HPM_ICACHE_STREAM     + 1;
   constant CSR_HPM_ITLB_ENTRY_FLUSH     :  integer := CSR_HPM_DTLB_ENTRY_FLUSH  + 1;
   constant CSR_HPM_HTLB_ENTRY_FLUSH     :  integer := CSR_HPM_ITLB_ENTRY_FLUSH  + 1;
-  constant CSR_HPM_AFTER_CCTRL          :  integer := CSR_HPM_HTLB_ENTRY_FLUSH  + 1;
-
-  constant CSR_HPM_FPU_LOW              :  integer := CSR_HPM_AFTER_CCTRL;
+  constant CSR_HPM_DCACHE_LOAD_MISS     :  integer := CSR_HPM_HTLB_ENTRY_FLUSH  + 1;
+  constant CSR_HPM_DCACHE_STORE_MISS    :  integer := CSR_HPM_DCACHE_LOAD_MISS  + 1;
+  constant CSR_HPM_ICACHE_ACCESS        :  integer := CSR_HPM_DCACHE_STORE_MISS + 1;
+    --constant CSR_HPM_AFTER_CCTRL          :  integer := CSR_HPM_HTLB_ENTRY_FLUSH  + 1;
+  -- FPU_EV_0
+  -- FPU events
+  constant CSR_HPM_FPU_LOW              :  integer := 0;
 
   -- PMP Configuration Codes
   constant PMP_OFF                      : word2 := "00";
@@ -1182,8 +1199,8 @@ package nvsupport is
   function is_irq(cause : cause_type) return boolean;
   function u2cause(cause : unsigned; irq : std_ulogic) return cause_type;
   function cause2wordx(cause : cause_type) return wordx;
+  function wordx2cause(v : wordx) return cause_type;
   function cause2vec(cause : cause_type; vec_in : std_logic_vector) return std_logic_vector;
-  function set_cause2prio(vec_in : cause_arr) return int_cause_arr;
 
   function to_floating(fpulen : integer;  set : integer) return integer;
 
@@ -1350,6 +1367,7 @@ package nvsupport is
                     menvcfg_stce : std_ulogic) return wordx;
   function mie_mask(mode_s : boolean; h_en : boolean;
                     ext_sscofpmf : boolean) return wordx;
+  function etrigger_mask(h_en : boolean) return wordx;
 
   function to_hstatus(status : csr_hstatus_type) return wordx;
   function to_hstatus(wdata : wordx) return csr_hstatus_type;
@@ -1386,6 +1404,9 @@ package nvsupport is
   function to_mstateen0h(wdata     : wordx;
                          mstateen0 : csr_mstateen0_type) return csr_mstateen0_type;
 
+  function to_mhcontext(wdata : wordx; h_en : boolean) return csr_mhcontext_type;
+  function to_scontext(wdata : wordx) return csr_scontext_type;
+
   function to_envcfg(envcfg : csr_envcfg_type) return wordx;
   function to_envcfg(envcfg : csr_envcfg_type; mask : csr_envcfg_type) return wordx;
   function to_envcfg(wdata  : wordx;
@@ -1418,8 +1439,7 @@ package nvsupport is
   function to_hpmeventh(hpmevent : hpmevent_type) return wordx;
 
   procedure pmp_precalc(pmpaddr     : in  pmpaddr_vec_type;
-                        pmpcfg0     : in  word64;
-                        pmpcfg2     : in  word64;
+                        pmpcfg_in   : in  pmpcfg_vec_type;
                         precalc     : out pmp_precalc_vec;
                         pmp_entries : integer;
                         pmp_no_tor  : integer;
@@ -1429,8 +1449,7 @@ package nvsupport is
 
   procedure pmp_unit(prv_in     : in  priv_lvl_type;
                      precalc    : in  pmp_precalc_vec;
-                     pmpcfg0_in : in  word64;
-                     pmpcfg2_in : in  word64;
+                     pmpcfg_in  : in  pmpcfg_vec_type;
                      mmwp       : in  std_ulogic;
                      mml        : in  std_ulogic;
                      mprv_in    : in  std_ulogic;
@@ -1448,8 +1467,7 @@ package nvsupport is
                      );
 
   procedure pmp_mmuu(precalc            : in  pmp_precalc_vec;
-                     pmpcfg0_in         : in  word64;
-                     pmpcfg2_in         : in  word64;
+                     pmpcfg_in          : in  pmpcfg_vec_type;
                      mml                : in  std_ulogic;
                      addr_low           : in  std_logic_vector;
                      addr_mask          : in  std_logic_vector;
@@ -1537,23 +1555,30 @@ package nvsupport is
                         next_out  : out std_logic_vector;
                         addr_out  : out std_logic_vector);
 
---  procedure bht_update(fusel_in : in  fuseltype;
---                       valid_in : in  std_ulogic;
---                       pc_in    : in  std_logic_vector;
---                       comp_in  : in  std_ulogic;
---                       unalg_pc : in  std_logic_vector;
---                       csren_in : in  csr_dfeaturesen_type;
---                       bht_out  : out nv_bht_in_type);
---  procedure btb_update(fusel_in   : in  fuseltype;
---                       valid_in   : in  std_ulogic;
---                       xc_in      : in  std_ulogic;
---                       pc_in      : in  std_logic_vector;
---                       comp_in    : in  std_ulogic;
---                       unalg_pc   : in  std_logic_vector;
---                       csren_in   : in  csr_dfeaturesen_type;
---                       wb_fence_i : in  std_ulogic;
---                       btb_out    : out nv_btb_in_type);
 
+  procedure ras_update(speculative_in : in  integer;
+                       inst_in        : in  word;
+                       fusel_in       : in  fuseltype;
+                       valid_in       : in  std_ulogic;
+                       xc_in          : in  std_ulogic;
+                       rdv_in         : in  std_ulogic;
+                       wdata_in       : in  std_logic_vector;
+                       rasi_in        : in  nv_ras_in_type;
+                       hold_in        : in  std_ulogic;
+                       rstate         : in  core_state;
+                       ras_out        : out nv_ras_in_type);
+  procedure ras_resolve(active    : in  extension_type;
+                        inst_in   : in  word;
+                        fusel_in  : in  fuseltype;
+                        valid_in  : in  std_ulogic;
+                        xc_in     : in  std_ulogic;
+                        rdv_in    : in  std_ulogic;
+                        rs1_in    : in  reg_t;
+                        ras_in    : in  nv_ras_out_type;
+                        ras_out   : out nv_ras_out_type;
+                        xc_out    : out std_ulogic;
+                        cause_out : out cause_type;
+                        tval_out  : out wordx);
 end;
 
 package body nvsupport is
@@ -1610,6 +1635,30 @@ package body nvsupport is
     extension(x_dtcm)         or
     extension(x_itcm)         or
     extension(x_rv64);
+
+  function fusel(n : integer range 0 to FUSELBITS - 1) return fuseltype is
+    -- Non-constant
+    variable r : fuseltype := (others => '0');
+  begin
+    r(n) := '1';
+
+    return r;
+  end;
+
+  constant NONE         : fuseltype := (others => '0');
+  constant ALU          : fuseltype := fusel(0);     -- ALU
+  constant BRANCH       : fuseltype := fusel(1);     -- Branch Unit
+  constant JAL          : fuseltype := fusel(2);     -- JAL
+  constant JALR         : fuseltype := fusel(3);     -- JALR
+  constant FLOW         : fuseltype := JAL or JALR;  -- Jump (JAL/JALR)
+  constant MUL          : fuseltype := fusel(4);     -- Mul/Div
+  constant LD           : fuseltype := fusel(5);     -- Load
+  constant ST           : fuseltype := fusel(6);     -- Store
+  constant AMO          : fuseltype := fusel(7);     -- Atomics
+  constant FPU          : fuseltype := fusel(8);     -- From FPU
+  constant ALU_SPECIAL  : fuseltype := fusel(9);     -- Only for early ALU in lane 0!
+  constant DIAG         : fuseltype := fusel(10);    -- Diagnostic cache load/store
+  constant NOT_LATE     : fuseltype := not (ALU or BRANCH);  -- All except ALU and Branch Unit
 
   -- Shortens addresses to the size that is actually needed (see addr_type).
   -- If an address is "sign extended" above the useable part, the two bits
@@ -1701,8 +1750,13 @@ package body nvsupport is
   function extend_wordx(v : std_logic_vector) return wordx is
      -- Non-constant
     variable result : wordx := (others => v(v'left));
+    variable vv     : std_logic_vector(v'length-1 downto 0) := v;
   begin
-    result(v'length - 1 downto 0) := v;
+    if v'length <= wordx'length then
+      result(v'length - 1 downto 0) := v;
+    else
+      result := vv(wordx'range);
+    end if;
 
     return result;
   end;
@@ -1722,27 +1776,28 @@ package body nvsupport is
   constant XC_INST_INST_PAGE_FAULT      : cause_type := to_cause(12);
   constant XC_INST_LOAD_PAGE_FAULT      : cause_type := to_cause(13);
   constant XC_INST_STORE_PAGE_FAULT     : cause_type := to_cause(15);
+  constant XC_INST_SOFTWARE_CHECK       : cause_type := to_cause(18);
   constant XC_INST_INST_G_PAGE_FAULT    : cause_type := to_cause(20);
   constant XC_INST_LOAD_G_PAGE_FAULT    : cause_type := to_cause(21);
   constant XC_INST_VIRTUAL_INST         : cause_type := to_cause(22);
   constant XC_INST_STORE_G_PAGE_FAULT   : cause_type := to_cause(23);
   constant XC_INST_RFFT                 : cause_type := to_cause(31);
 
+
+
   -- Interrupt Codes
---  constant IRQ_U_SOFTWARE               : cause_type := to_cause(0, true);
   constant IRQ_S_SOFTWARE               : cause_type := to_cause(1, true);
   constant IRQ_VS_SOFTWARE              : cause_type := to_cause(2, true);
   constant IRQ_M_SOFTWARE               : cause_type := to_cause(3, true);
---  constant IRQ_U_TIMER                  : cause_type := to_cause(4, true);
   constant IRQ_S_TIMER                  : cause_type := to_cause(5, true);
   constant IRQ_VS_TIMER                 : cause_type := to_cause(6, true);
   constant IRQ_M_TIMER                  : cause_type := to_cause(7, true);
---  constant IRQ_U_EXTERNAL               : cause_type := to_cause(8, true);
   constant IRQ_S_EXTERNAL               : cause_type := to_cause(9, true);
   constant IRQ_VS_EXTERNAL              : cause_type := to_cause(10, true);
   constant IRQ_M_EXTERNAL               : cause_type := to_cause(11, true);
   constant IRQ_SG_EXTERNAL              : cause_type := to_cause(12, true);
   constant IRQ_LCOF                     : cause_type := to_cause(13, true);
+  constant IRQ_NMI                      : cause_type := to_cause(16, true);
   constant IRQ_UNUSED                   : cause_type := to_cause(31, true);
 
   -- Reset Codes
@@ -1762,6 +1817,7 @@ package body nvsupport is
   constant I_ME   : wordx := cause2mask(IRQ_M_EXTERNAL);   -- external interrupt only
   constant I_SGE  : wordx := cause2mask(IRQ_SG_EXTERNAL);  -- H
   constant I_LCOF : wordx := cause2mask(IRQ_LCOF);         -- Sscofpmf
+  constant I_NMI  : wordx := cause2mask(IRQ_NMI);          -- NMI
   constant I_RSV0 : wordx := int2mask(0);                  -- Reserved - formerly N extension
   constant I_RSV4 : wordx := int2mask(4);                  -- Reserved - formerly N extension
   constant I_RSV8 : wordx := int2mask(8);                  -- Reserved - formerly N extension
@@ -1822,29 +1878,25 @@ package body nvsupport is
 
   function is_rv(len : integer; rv : word2) return boolean is
   begin
+-- pragma translate_off
     if len /= 32 and len /= 64 and len /= 128 then
       assert false report "Bad XLEN (len)" severity failure;
     end if;
+-- pragma translate_on
 
     case rv is
       when "01"   => return len = 32;
       when "10"   => return len = 64;
       when "11"   => return len = 128;
-      when others => assert false report "Bad XLEN (rv)" severity failure;
+      when others =>
+-- pragma translate_off
+        assert false report "Bad XLEN (rv)" severity failure;
+-- pragma translate_on
     end case;
 
     return false;
   end;
 
---  function is_rv32 return boolean is
---  begin
---    return is_rv(32, rv);
---  end;
---
---  function is_rv64 return boolean is
---  begin
---    return is_rv(64, rv);
---  end;
 
   -- Sign extend to 64 bit word.
   function to64(v : std_logic_vector) return word64 is
@@ -1862,6 +1914,16 @@ package body nvsupport is
   begin
     return uext(v, XLEN);
   end;
+
+  -- Mask with all the legal interrupts for ETRIGGER (when h_en = 0)
+  constant etrigger_mask_value : word32 := x"8000bbff";
+  constant CSR_ETRIGGER_MASK   : wordx := to0x(etrigger_mask_value);
+  --constant CSR_ETRIGGER_MASK   : wordx := extend_wordx(x"08000bbff");
+  -- Mask with all the hypervisor legal interrupts for ETRIGGER
+  --constant CSR_H_ETRIGGER_MASK : wordx := to0x(x"00F00400");
+  constant etrigger_h_mask_value : word32 := x"00F00400";
+  constant CSR_H_ETRIGGER_MASK   : wordx  := to0x(etrigger_h_mask_value);
+
 
   -- Branch and jump generation
   procedure bjump_gen(active        : in  extension_type;
@@ -2325,6 +2387,7 @@ package body nvsupport is
               end if;  -- inst_word(17 downto 16) = "11" then
             end if;  -- bjump1 = '1' and btb_hit(0) = '0' and btaken(0) = '1'
           end if;  -- inst_word(1 downto 0) = "11" then                     --
+
         when "01" =>
           if inst_word(17 downto 16) = "11" then
             -- Not compressed instruction in [47:16]
@@ -2403,6 +2466,7 @@ package body nvsupport is
               end if;
             end if;  -- bjump2 = '1' and btb_hit(1) = '0' and btaken(1) = '1' then
           end if;  -- inst_word(17 downto 16) = "11" then
+
         when "10" =>
           if not single_issue then
             if inst_word(33 downto 32) = "11" then
@@ -2445,7 +2509,8 @@ package body nvsupport is
           else
             null;
           end if;  -- not single_issue
-        when "11" =>
+
+        when others =>
           if not single_issue then
             if inst_word(49 downto 48) /= "11" then
               -- Compressed instruction in [63:48]
@@ -2463,8 +2528,7 @@ package body nvsupport is
           else
             null;
           end if;  -- not single_issue
-        when others =>
-          null;
+
       end case;
     end if;
 
@@ -2487,14 +2551,15 @@ package body nvsupport is
                          fpu_en   : in  boolean;
                          inst_out : out word;
                          xc_out   : out std_ulogic) is
-    variable is_rv64  : boolean  := is_enabled(active, x_rv64);
-    variable is_rv32  : boolean  := not is_rv64;
-    variable ext_f    : boolean  := is_enabled(active, x_f);
-    variable ext_d    : boolean  := is_enabled(active, x_d);
-    variable ext_m    : boolean  := is_enabled(active, x_m);
-    variable ext_zba  : boolean  := is_enabled(active, x_zba);
-    variable ext_zbb  : boolean  := is_enabled(active, x_zbb);
-    variable ext_zcb  : boolean  := is_enabled(active, x_zcb);
+    variable is_rv64     : boolean := is_enabled(active, x_rv64);
+    variable is_rv32     : boolean := not is_rv64;
+    variable ext_f       : boolean := is_enabled(active, x_f);
+    variable ext_d       : boolean := is_enabled(active, x_d);
+    variable ext_m       : boolean := is_enabled(active, x_m);
+    variable ext_zba     : boolean := is_enabled(active, x_zba);
+    variable ext_zbb     : boolean := is_enabled(active, x_zbb);
+    variable ext_zcb     : boolean := is_enabled(active, x_zcb);
+    variable ext_zcmop   : boolean := is_enabled(active, x_zcmop);
     -- Evaluate compressed instruction
     variable op     : word2                         := inst_in( 1 downto  0);
     variable funct2 : funct2_type                   := inst_in( 6 downto  5);
@@ -2512,17 +2577,9 @@ package body nvsupport is
     variable xc     : std_ulogic                    := '0';
   begin
 
-    -- Default to the first below, for no particular reason.
-    inst := "00" &                   -- imm[11:10]
-            inst_in(10 downto 7) &   -- imm[9:6]
-            inst_in(12 downto 11) &  -- imm[5:4]
-            inst_in(5) &             -- imm[3]
-            inst_in(6) &             -- imm[2]
-            "00" &                   -- imm[1:0]
-            GPR_SP &                 -- rs1
-            I_ADDI &                 -- funct3
-            rdc &                    -- rd
-            OP_IMM;                  -- addi
+    -- Default to a simple illegal instruction.
+    -- All illegals below set the same.
+    inst := zerow;
 
     -- Expand instruction
     case op is
@@ -2546,6 +2603,7 @@ package body nvsupport is
             -- imm = 0 are reserved by the standard.
             if inst_in(12 downto 5) = "00000000" then
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.fld -> fld rd', imm(rs1')
@@ -2560,6 +2618,7 @@ package body nvsupport is
                       OP_LOAD_FP;              -- fld
             if not ext_d or not fpu_en then
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.lw -> lw rd', imm(rs1')
@@ -2590,6 +2649,7 @@ package body nvsupport is
                       OP_LOAD_FP;              -- flw
               if not fpu_en then
                 xc := '1';
+                inst := zerow;
               end if;
             -- c.ld -> ld rd', imm(rs1')
             elsif is_rv64 then
@@ -2603,6 +2663,7 @@ package body nvsupport is
                       OP_LOAD;                 -- ld
             else
               xc := '1';
+              inst := zerow;
             end if;
 
           when "100" =>
@@ -2660,12 +2721,15 @@ package body nvsupport is
                             OP_STORE;                -- sh
                   else
                     xc := '1';
+                    inst := zerow;
                   end if;
                 when others =>
                   xc := '1';
+                  inst := zerow;
               end case;
             else
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.fsd -> fsd rs2', imm(rs1')
@@ -2682,6 +2746,7 @@ package body nvsupport is
                       OP_STORE_FP;             -- fsd
             else
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.sw -> sw rs2', imm(rs1')
@@ -2698,7 +2763,7 @@ package body nvsupport is
                     OP_STORE;                -- sw
           -- c.fsw
           -- c.sd
-          when "111" =>
+          when others =>
             -- c.fsw -> fsw rs2', imm(rs1')
             if is_rv32 and ext_f then
               inst := "00000" &                -- imm[11:7]
@@ -2713,6 +2778,7 @@ package body nvsupport is
                       OP_STORE_FP;             -- fsw
               if not fpu_en then
                 xc := '1';
+                inst := zerow;
               end if;
             -- c.sd -> sd rs2', imm(rs1')
             elsif is_rv64 then
@@ -2727,11 +2793,8 @@ package body nvsupport is
                       OP_STORE;                -- sd
             else
               xc := '1';
+              inst := zerow;
             end if;
-
-          when others =>
-            xc := '1';
-
         end case;  -- funct3
 
       -- C1
@@ -2780,6 +2843,7 @@ package body nvsupport is
               -- rd = x0 are reserved by the standard.
               if rd = "00000" then
                 xc := '1';
+                inst := zerow;
               end if;
             end if;
 
@@ -2796,6 +2860,7 @@ package body nvsupport is
 
           -- c.addi16sp
           -- c.lui
+          -- c.mop.0-7
           when "011" =>
             if rd = GPR_SP then
               -- c.addi16sp -> addi x2, x2, imm
@@ -2821,8 +2886,18 @@ package body nvsupport is
                       LUI;                   -- lui
             end if;
             -- c.addi16sp and c.lui are reserved with imm = 0.
-            if inst_in(12) = '0' and inst_in(6 downto 2) = "00000" then
-              xc := '1';
+            if inst_in(12) = '0' and rfa2 = "00000" then
+              xc     := '1';
+              inst := zerow;
+              -- But c.mop comes in here (x1/3/5/7/9/11/13/15).
+              if ext_zcmop and rfa1(0) = '1' and rfa1(4) = '0' then
+                xc   := '0';
+                inst := "000000000000" &
+                        "00000" &        -- rs1
+                        I_ADDI &         -- funct3
+                        "00000" &        -- rd
+                        OP_IMM;          -- addi x0, x0, 0 (nop)
+              end if;
             end if;
 
           -- ALU
@@ -2844,6 +2919,7 @@ package body nvsupport is
                 -- are designated for custom extensions.
                 if is_rv32 and inst_in(12) = '1' then
                   xc := '1';
+                  inst := zerow;
                 end if;
                 -- shamt = 0 are custom HINTs.
 
@@ -2858,7 +2934,7 @@ package body nvsupport is
                         OP_IMM;                -- andi
 
               -- misc
-              when "11" =>
+              when others =>
                 case funct2 is
 
                   -- c.sub[w] -> sub[w] rd', rs1', rs2'
@@ -2874,6 +2950,7 @@ package body nvsupport is
                         inst(6 downto 0) := OP_32;
                       else
                         xc := '1';
+                        inst := zerow;
                       end if;
                     end if;
 
@@ -2892,6 +2969,7 @@ package body nvsupport is
                         inst(6 downto 0)   := OP_32;
                       else
                         xc := '1';
+                        inst := zerow;
                       end if;
                     end if;
 
@@ -2914,11 +2992,12 @@ package body nvsupport is
                                 OP_REG;              -- mul
                       else
                         xc := '1';
+                        inst := zerow;
                       end if;
                     end if;
 
                   -- c.and -> and rd', rs1', rs2'
-                  when "11" =>
+                  when others =>
                     inst := F7_BASE &   -- funct7
                             rfa2c &     -- rs2
                             rfa1c &     -- rs1
@@ -2945,6 +3024,7 @@ package body nvsupport is
                                       OP_IMM;              -- sext.b
                             else
                               xc := '1';
+                              inst := zerow;
                             end if;
                           -- c.zext.h -> zext.h rd'/rs1', rd'/rs1'
                           when "010" =>
@@ -2964,6 +3044,7 @@ package body nvsupport is
                               end if;
                             else
                               xc := '1';
+                              inst := zerow;
                             end if;
                           -- c.sext.h -> sext.h rd'/rs1', rd'/rs1'
                           when "011" =>
@@ -2975,6 +3056,7 @@ package body nvsupport is
                                       OP_IMM;              -- sext.h
                             else
                               xc := '1';
+                              inst := zerow;
                             end if;
                           -- c.zext.w -> add.uw rd'/rs1', rd'/rs1', zero
                           when "100" =>
@@ -2987,6 +3069,7 @@ package body nvsupport is
                                       OP_32;               -- add.uw
                             else
                               xc := '1';
+                              inst := zerow;
                             end if;
                           -- c.not -> xori rd'/rs1', rd1'/r1', -1
                           when "101" =>
@@ -2997,20 +3080,15 @@ package body nvsupport is
                                     OP_IMM;                -- xori
                           when others =>
                             xc := '1';
+                            inst := zerow;
                         end case;
                       else
                         xc := '1';
+                        inst := zerow;
                       end if;
                     end if;
 
-                  when others =>
-                    xc := '1';
-
                 end case;  -- funct2
-
-              when others =>
-                xc := '1';
-
             end case;  -- inst_in(11 downto 10)
 
           -- c.j -> jal x0, imm
@@ -3030,7 +3108,7 @@ package body nvsupport is
 
           -- c.beqz -> beq rs1', x0, imm
           -- c.bnez -> bne rs1', x0, imm
-          when "110" | "111" =>
+          when others =>  -- "110" | "111"
             inst := inst_in(12) &            -- imm[12]
                     imm12(10 downto 9) &     -- imm[10:9]
                     inst_in(12) &            -- imm[8]
@@ -3043,9 +3121,6 @@ package body nvsupport is
                     inst_in(4 downto 3) &    -- imm[2:1]
                     inst_in(12) &            -- imm[11]
                     OP_BRANCH;               -- branch
-
-          when others =>
-            xc := '1';
 
         end case;  -- inst_in(11 downto 10)
 
@@ -3066,6 +3141,7 @@ package body nvsupport is
             -- are designated for custom extensions.
             if is_rv32 and inst_in(12) = '1' then
               xc := '1';
+              inst := zerow;
             end if;
             -- rd = x0 are custom HINTs (except as above).
 
@@ -3082,6 +3158,7 @@ package body nvsupport is
                     OP_LOAD_FP;            -- fld
             if not ext_d or not fpu_en then
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.lwsp -> lw rd, imm(x2)
@@ -3098,6 +3175,7 @@ package body nvsupport is
             -- rd = x0 are reserved by the standard.
             if rd = "00000" then
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.flwsp
@@ -3116,6 +3194,7 @@ package body nvsupport is
                       OP_LOAD_FP;            -- flw
               if not ext_f or not fpu_en then
                 xc := '1';
+                inst := zerow;
               end if;
             -- c.ldsp -> ld rd, imm(x2)
             else
@@ -3131,6 +3210,7 @@ package body nvsupport is
               -- rd = x0 are reserved by the standard.
               if rd = "00000" then
                 xc := '1';
+                inst := zerow;
               end if;
             end if;
 
@@ -3148,6 +3228,7 @@ package body nvsupport is
                 -- rs1 = x0 are reserved by the standard.
                 if rfa1 = "00000" then
                   xc := '1';
+                  inst := zerow;
                 end if;
               -- c.mv -> add rd, x0, rs2
               else
@@ -3203,6 +3284,7 @@ package body nvsupport is
                     OP_STORE_FP;             -- fld
             if not ext_d or not fpu_en then
               xc := '1';
+              inst := zerow;
             end if;
 
           -- c.swsp -> sw rs2, imm(x2)
@@ -3219,7 +3301,7 @@ package body nvsupport is
 
           -- c.fswsp
           -- c.sdsp
-          when "111" =>
+          when others =>
             -- c.fswsp -> fsw rs2, imm(x2)
             if is_rv32 and ext_f then
               inst := "0000" &                 -- imm[11:8]
@@ -3233,6 +3315,7 @@ package body nvsupport is
                       OP_STORE_FP;             -- fsw
               if not fpu_en then
                 xc := '1';
+                inst := zerow;
               end if;
             -- c.sdsp -> sd rs2, imm(x2)
             elsif is_rv64 then
@@ -3247,10 +3330,8 @@ package body nvsupport is
                       OP_STORE;                -- sd
             else
               xc := '1';
+              inst := zerow;
             end if;
-
-          when others =>
-            xc := '1';
 
         end case;  -- funct3
 
@@ -3261,6 +3342,38 @@ package body nvsupport is
 
     inst_out := inst;
     xc_out   := xc;
+  end;
+
+  function rvc_expander_fpuxc(active  : extension_type;
+                              inst_in : word16;
+                              fpu_en  : boolean) return boolean is
+    variable is_rv64     : boolean := is_enabled(active, x_rv64);
+    variable is_rv32     : boolean := not is_rv64;
+    variable ext_f       : boolean := is_enabled(active, x_f);
+    variable ext_d       : boolean := is_enabled(active, x_d);
+    -- Evaluate compressed instruction
+    variable op     : word2       := inst_in( 1 downto  0);
+    variable funct3 : funct3_type := inst_in(15 downto 13);
+  begin
+    if op /= "00" and op /= "10" then
+      return false;
+    end if;
+
+    -- c.fld[sp] / c.fsd[sp]
+    if funct3 = "001" or funct3 = "101" then
+      return not ext_d or not fpu_en;
+    end if;
+
+    if not is_rv32 or fpu_en then
+      return false;
+    end if;
+
+    -- c.flw[sp] / c.fsw[sp]
+    if funct3 = "011" or funct3 = "111" then
+      return ext_f;
+    end if;
+
+    return false;
   end;
 
   -- Align compressed instruction
@@ -3283,7 +3396,6 @@ package body nvsupport is
                         unaligned_out    : out std_ulogic) is
     variable single_issue : boolean    := is_enabled(active, x_single_issue);
     -- Non-constant
-    subtype  iword_pair_type is iword_tuple_type(inst_in'range);
     subtype  fetch_pair      is std_logic_vector(inst_in'high downto inst_in'low);
     variable inst         : iword_pair_type;
     variable unaligned    : std_ulogic := '0';
@@ -3331,6 +3443,10 @@ package body nvsupport is
       inst_c2xc := '0';
       inst_c3xc := '0';
     end if;
+    inst_c2xc := '0';
+    inst_c3xc := '0';
+    inst_c2xc := '0';
+    inst_c3xc := '0';
 
     inst(0).lpc   := "00";
     inst(0).d     := inst_in(0).d;
@@ -3633,15 +3749,129 @@ package body nvsupport is
     buffer_first_out := buffer_first and valid_in;
   end;
 
+  procedure no_rvc_aligner(active        : in  extension_type;
+                        inst_in          : in  iword_tuple_type;
+                        rvc_pc           : in  std_logic_vector;
+                        valid_in         : in  std_ulogic;
+                        inst_out         : out iword_tuple_type;
+                        comp_ill         : out word2;
+                        hold_out         : out std_ulogic;
+                        npc_out          : out word3;
+                        valid_out        : out std_logic_vector;
+                        buffer_first_out : out std_logic;  -- buffer first instruction
+                        buffer_sec_out   : out std_logic;  -- buffer second instruction
+                                                           --  if not issued
+                        buffer_third_out : out std_logic;  -- buffer the third instruction
+                        buffer_inst      : out iword_type;
+                        buff_comp_ill    : out std_logic;
+                        unaligned_out    : out std_ulogic) is
+    variable single_issue : boolean    := is_enabled(active, x_single_issue);
+    -- Non-constant
+    subtype  fetch_pair      is std_logic_vector(inst_in'high downto inst_in'low);
+    variable inst         : iword_pair_type;
+    variable unaligned    : std_ulogic := '0';
+    variable hold         : std_ulogic := '0';
+    variable npc          : word3      := (others => '0');
+    variable valid        : fetch_pair := (others => '0');
+    variable buffer_first : std_ulogic;
+    variable buffer_sec   : std_ulogic;
+    variable buffer_third : std_ulogic;
+    variable rvc_pc_t     : std_ulogic;
+  begin
+
+    inst(0).lpc   := "00";
+    inst(0).d     := inst_in(0).d;
+    inst(0).dc    := zerow16;
+    inst(0).xc    := "000";
+    inst(0).c     := '0';
+    if not single_issue then
+      inst(1).lpc   := "10";
+      inst(1).d     := inst_in(1).d;
+      inst(1).dc    := zerow16;
+      inst(1).xc    := "000";
+      inst(1).c     := '0';
+    end if;
+    comp_ill      := "00";
+    buff_comp_ill := '0';
+
+    buffer_inst.d   := zerow;
+    buffer_inst.lpc := "00";
+    buffer_inst.xc  := "000";
+    buffer_inst.c   := '0';
+    buffer_first    := '0';
+    buffer_sec      := '0';
+    buffer_third    := '0';
+
+    -- No compressed insn, only one bit needed
+    rvc_pc_t := rvc_pc(2);
+    if single_issue then
+      rvc_pc_t := '0';
+    end if;
+    case rvc_pc_t is
+      -- Decode at 0x00
+      when '0' =>
+          -- Not Compressed instruction in 0
+        inst(0)     := inst_in(0);
+        inst(0).lpc := "00";
+        valid(0)    := '1';
+        if single_issue then
+          inst(0).lpc := rvc_pc(2) & '0';
+        end if;
+          -- Not Compressed instruction in 1
+        if not single_issue then
+          inst(1)     := inst_in(1);
+          inst(1).lpc := "10";
+          buffer_sec  := '1';
+          valid(1)    := '1';
+        end if;  -- not single_issue
+
+      -- Decode at 0x04
+      when others =>
+        if not single_issue then
+          -- Not Compressed instruction in 1
+            inst(0)                    := inst_in(1);
+            inst(0).lpc                := "10";
+            valid(0)                   := '1';
+            buffer_first               := '1';
+            buffer_inst.d(31 downto 0) := inst_in(1).d(31 downto 0);
+            buffer_inst.lpc            := "10";
+        else
+          null;
+        end if; -- not single_issue
+    end case;  -- pc_in(2)
+
+    if valid_in = '0' then
+      valid := "00";
+    end if;
+    if single_issue then
+      valid(1)     := '0';
+      buffer_first := '0';
+      buffer_sec   := '0';
+    end if;
+
+    -- Output Signals
+    inst_out         := inst;
+    unaligned_out    := unaligned and valid_in;
+    valid_out        := valid;
+    hold_out         := hold and valid_in;
+    npc_out          := npc;
+    buffer_sec_out   := buffer_sec and valid_in;
+    buffer_third_out := buffer_third and valid_in;
+    buffer_first_out := buffer_first and valid_in;
+  end;
+
   -- PC validity check
   -- Returns '1' if pc has to be used as an operand.
-  function pc_valid(inst : word) return std_ulogic is
+  function pc_valid(
+                    inst : word) return std_ulogic is
     variable op  : opcode_type := opcode(inst);
     -- Non-constant
     variable vpc : std_ulogic  := '0';
   begin
     case op is
-      when AUIPC | OP_JAL | OP_JALR => vpc := '1';
+      when OP_JAL | OP_JALR => vpc := '1';
+      when AUIPC =>
+        vpc := '1';
       when others => null;
     end case;
 
@@ -3744,6 +3974,16 @@ package body nvsupport is
     return opcode = OP_SYSTEM and funct3 = "100";
   end;
 
+  function is_wfi(inst :word) return boolean is
+    variable opcode : opcode_type := opcode(inst);
+    variable funct3 : funct3_type := funct3(inst);
+    variable funct7 : funct7_type := funct7(inst);
+    variable rs2    : reg_t       := rs2(inst);
+  begin
+    return opcode = OP_SYSTEM and funct3 = "000" and funct7 = F7_WFI and
+           rs2 = "00101";
+  end;
+
   function is_xret(inst : word) return boolean is
     variable rd     : reg_t       := rd(inst);
     variable rs1    : reg_t       := rs1(inst);
@@ -3770,14 +4010,14 @@ package body nvsupport is
   end;
 
   -- CSR, or possibly so. Do not use when certainty is required!
-  -- Does not check very carefully when it comes to Zisslpcfi instructions
-  -- (of which many, but not all, access CSRs when they are active).
+  -- Does not check very carefully when it comes to Zicfiss instructions
+  -- (of which many, but not necessarily all, access CSRs when they are active).
   function maybe_csr(active : extension_type;
                      inst   : word) return boolean is
-    variable rd            : reg_t        := rd(inst);
-    variable rfa1          : reg_t        := rs1(inst);
-    variable funct7        : funct7_type  := funct7(inst);
-    variable funct12       : funct12_type := funct12(inst);
+    variable rd          : reg_t        := rd(inst);
+    variable rfa1        : reg_t        := rs1(inst);
+    variable funct7      : funct7_type  := funct7(inst);
+    variable funct12     : funct12_type := funct12(inst);
   begin
 --    return is_csr_access(inst)
     return is_csr_access(inst)
@@ -3836,43 +4076,51 @@ package body nvsupport is
     variable funct3 : funct3_type := funct3(inst);
   begin
     -- CSRRW/CSRRWI and rd=x0, ie write-only?
-    return (rd = "00000" and (funct3 = I_CSRRW or funct3 = I_CSRRWI))
-           ;
+    return rd = "00000" and (funct3 = I_CSRRW or funct3 = I_CSRRWI);
   end;
 
   -- There may at some later point be other similar instructions.
   -- Then further checks (rd) will be needed here!
-  function is_sfence_vma(inst : word) return boolean is
-    variable rd     : reg_t       := rd(inst);
-    variable funct7 : funct7_type := funct7(inst);
+  function is_sfence_vma(active : extension_type;
+                         inst   : word) return boolean is
+    variable ext_svinval : boolean     := is_enabled(active, x_svinval);
+    variable rd          : reg_t       := rd(inst);
+    variable funct7      : funct7_type := funct7(inst);
   begin
-    return is_system0(inst) and funct7 = F7_SFENCE_VMA;
+    return is_system0(inst) and
+           (funct7 = F7_SFENCE_VMA or (ext_svinval and funct7 = F7_SINVAL_VMA));
   end;
 
   -- There may at some later point be other similar instructions.
   -- Then further checks (rd) will be needed here!
-  function is_hfence_vvma(inst : word) return boolean is
-    variable rd     : reg_t       := rd(inst);
-    variable funct7 : funct7_type := funct7(inst);
+  function is_hfence_vvma(active : extension_type;
+                          inst   : word) return boolean is
+    variable ext_svinval : boolean     := is_enabled(active, x_svinval);
+    variable rd          : reg_t       := rd(inst);
+    variable funct7      : funct7_type := funct7(inst);
   begin
-    return is_system0(inst) and funct7 = F7_HFENCE_VVMA;
+    return is_system0(inst) and
+           (funct7 = F7_HFENCE_VVMA or (ext_svinval and funct7 = F7_HINVAL_VVMA));
   end;
 
   -- There may at some later point be other similar instructions.
   -- Then further checks (rd) will be needed here!
-  function is_hfence_gvma(inst : word) return boolean is
-    variable rd     : reg_t       := rd(inst);
-    variable funct7 : funct7_type := funct7(inst);
+  function is_hfence_gvma(active : extension_type;
+                          inst   : word) return boolean is
+    variable ext_svinval : boolean     := is_enabled(active, x_svinval);
+    variable rd          : reg_t       := rd(inst);
+    variable funct7      : funct7_type := funct7(inst);
   begin
-    return is_system0(inst) and funct7 = F7_HFENCE_GVMA;
+    return is_system0(inst) and
+           (funct7 = F7_HFENCE_GVMA or (ext_svinval and funct7 = F7_HINVAL_GVMA));
   end;
 
   function is_tlb_fence(active : extension_type;
                         inst   : word) return boolean is
     variable ext_h : boolean := is_enabled(active, x_h);
   begin
-    return is_sfence_vma(inst) or
-           (ext_h and (is_hfence_vvma(inst) or is_hfence_gvma(inst)));
+    return is_sfence_vma(active, inst) or
+           (ext_h and (is_hfence_vvma(active, inst) or is_hfence_gvma(active, inst)));
   end;
 
   -- There may at some later point be other similar instructions.
@@ -3909,11 +4157,12 @@ package body nvsupport is
     return opcode = OP_FENCE and funct3 = I_FENCE_I;
   end;
 
-  function is_diag(inst : word) return boolean is
-    variable opcode : opcode_type := opcode(inst);
-    variable funct7 : funct7_type := funct7(inst);
+  function is_diag(active : extension_type; inst : word) return boolean is
+    variable ext_noelv : boolean     := is_enabled(active, x_noelv);
+    variable opcode    : opcode_type := opcode(inst);
+    variable funct7    : funct7_type := funct7(inst);
   begin
-    return opcode = OP_CUSTOM0 and funct7 = zerow(funct7'range);
+    return ext_noelv and opcode = OP_CUSTOM0 and funct7 = F7_BASE;
   end;
 
   -- Assumes it is already know that inst is a diagnostic instruction.
@@ -3921,6 +4170,14 @@ package body nvsupport is
     variable funct3 : funct3_type := funct3(inst);
   begin
     return get_hi(funct3) = '1';
+  end;
+
+  function is_custom_alu(active : extension_type; inst : word) return boolean is
+    variable ext_noelvalu : boolean     := is_enabled(active, x_noelvalu);
+    variable opcode       : opcode_type := opcode(inst);
+    variable funct7       : funct7_type := funct7(inst);
+  begin
+    return ext_noelvalu and opcode = OP_CUSTOM0 and funct7 = F7_BASE_RV64;
   end;
 
   function is_cbo(inst : word) return boolean is
@@ -3932,16 +4189,19 @@ package body nvsupport is
 
   function is_mop_r(active : extension_type;
                     inst   : word) return boolean is
-    variable ext_zimops : boolean     := is_enabled(active, x_zimops);
-    variable funct7     : funct7_type := funct7(inst);
+    variable ext_zimop : boolean     := is_enabled(active, x_zimop);
+    variable funct7    : funct7_type := funct7(inst);
   begin
-    if not ext_zimops or not is_system1(inst) then
+    if not ext_zimop or not is_system1(inst) then
       return false;
     end if;
 
     case funct7 is
-      when F7_MOPR_000 | F7_MOPR_001 | F7_MOPR_010 | F7_MOPR_011 |
-           F7_MOPR_100 | F7_MOPR_101 | F7_MOPR_110 | F7_MOPR_111 =>
+      when F7_MOPR_0  | F7_MOPR_4  | F7_MOPR_8  | F7_MOPR_12 |
+           F7_MOPR_16 | F7_MOPR_20 | F7_MOPR_24 | F7_MOPR_28 =>
+        -- MOPR is really 1-00--0 111--,
+        -- but other than 111 at the end is currently illegal, so
+        -- we do not need to check that here.
         return true;
       when others =>
         return false;
@@ -3950,16 +4210,16 @@ package body nvsupport is
 
   function is_mop_rr(active : extension_type;
                      inst   : word) return boolean is
-    variable ext_zimops : boolean     := is_enabled(active, x_zimops);
-    variable funct7     : funct7_type := funct7(inst);
+    variable ext_zimop : boolean     := is_enabled(active, x_zimop);
+    variable funct7    : funct7_type := funct7(inst);
   begin
-    if not ext_zimops or not is_system1(inst) then
+    if not ext_zimop or not is_system1(inst) then
       return false;
     end if;
 
     case funct7 is
-      when F7_MOPRR_000 | F7_MOPRR_001 | F7_MOPRR_010 | F7_MOPRR_011 |
-           F7_MOPRR_100 | F7_MOPRR_101 | F7_MOPRR_110 | F7_MOPRR_111 =>
+      when F7_MOPRR_0 | F7_MOPRR_1 | F7_MOPRR_2 | F7_MOPRR_3 |
+           F7_MOPRR_4 | F7_MOPRR_5 | F7_MOPRR_6 | F7_MOPRR_7 =>
         return true;
       when others =>
         return false;
@@ -3968,31 +4228,26 @@ package body nvsupport is
 
   function is_used_mop_rd(active : extension_type;
                           inst   : word) return boolean is
-    variable ext_zimops    : boolean      := is_enabled(active, x_zimops);
-    variable rd            : reg_t        := rd(inst);
-    variable rfa1          : reg_t        := rs1(inst);
-    variable funct7        : funct7_type  := funct7(inst);
-    variable funct12       : funct12_type := funct12(inst);
+    variable ext_zimop : boolean := is_enabled(active, x_zimop);
   begin
-    if not ext_zimops or not is_system1(inst)
-       then
+    if not ext_zimop then
       return false;
     end if;
 
-      -- Other MOP_R[R]?
-      return is_mop_r(active, inst) or is_mop_rr(active, inst);
+    -- Any MOP_R[R]?
+    return is_mop_r(active, inst) or is_mop_rr(active, inst);
   end;
 
   function is_used_mop_rs1(active : extension_type;
                            inst   : word) return boolean is
-    variable ext_zimops    : boolean      := is_enabled(active, x_zimops);
-    variable rd            : reg_t        := rd(inst);
-    variable rfa1          : reg_t        := rs1(inst);
-    variable rfa2          : reg_t        := rs2(inst);
-    variable funct7        : funct7_type  := funct7(inst);
-    variable funct12       : funct12_type := funct12(inst);
+    variable ext_zimop   : boolean      := is_enabled(active, x_zimop);
+    variable rd          : reg_t        := rd(inst);
+    variable rfa1        : reg_t        := rs1(inst);
+    variable rfa2        : reg_t        := rs2(inst);
+    variable funct7      : funct7_type  := funct7(inst);
+    variable funct12     : funct12_type := funct12(inst);
   begin
-    if not ext_zimops or not is_system1(inst)
+    if not ext_zimop or not is_system1(inst)
        then
       return false;
     end if;
@@ -4002,13 +4257,13 @@ package body nvsupport is
 
   function is_used_mop_rs2(active : extension_type;
                            inst   : word) return boolean is
-    variable ext_zimops    : boolean     := is_enabled(active, x_zimops);
-    variable rd            : reg_t       := rd(inst);
-    variable rfa1          : reg_t       := rs1(inst);
-    variable rfa2          : reg_t       := rs2(inst);
-    variable funct7        : funct7_type := funct7(inst);
+    variable ext_zimop   : boolean     := is_enabled(active, x_zimop);
+    variable rd          : reg_t       := rd(inst);
+    variable rfa1        : reg_t       := rs1(inst);
+    variable rfa2        : reg_t       := rs2(inst);
+    variable funct7      : funct7_type := funct7(inst);
   begin
-    if not ext_zimops or not is_system1(inst)
+    if not ext_zimop or not is_system1(inst)
        then
       return false;
     end if;
@@ -4136,33 +4391,54 @@ package body nvsupport is
     -- Non-constant
     variable wreg   : std_ulogic  := '1';
   begin
+    -- Check for the cases where there is no rd
     case op is
-      when OP_BRANCH   |
-           OP_STORE    |
-           OP_STORE_FP | OP_LOAD_FP |
+      when OP_BRANCH | OP_STORE =>
+        -- The only two "normal" integer instructions to not have a destination.
+        wreg := '0';
+
+      when OP_STORE_FP | OP_LOAD_FP |
            OP_FMADD    | OP_FMSUB   |
-           OP_FNMSUB   | OP_FNMADD   => wreg := '0';
+           OP_FNMSUB   | OP_FNMADD =>
+        -- Most FPU operations have no rd
+        wreg := '0';
+
       when OP_FP =>
+        -- Most FPU operations have no rd
         case funct5 is
-          when R_FCVT_W_S | R_FMV_X_W |  -- Latter includes R_FCLASS
-               R_FCMP                =>
-            null;  -- These have integer results.
-          when others                => wreg := '0';
+          when R_FCVT_W_S | R_FMV_X_W | R_FCMP =>
+            -- Conversion/move to integer, compare and class check
+          when others =>
+            wreg := '0';
         end case;
+
       when OP_SYSTEM =>
-        -- Only CSR, hlv, Zimops (of which some Zisslpcfi) among SYSTEM instructions have rd.
+        -- Among SYSTEM instructions, rd use is limited to
+        -- CSR, hlv, Zimop (of which some Zicfiss).
         if is_used_mop_rd(active,
                           inst) then
           null;
         elsif not (is_csr_access(inst) or is_hlv(inst)) then
-          wreg                               := '0';
+          wreg := '0';
         end if;
-      when OP_FENCE                  => wreg := '0';
+
+      when OP_FENCE =>
+        -- No destination for fences
+        wreg := '0';
+
       when OP_CUSTOM0 =>
-        if not is_diag(inst) or is_diag_store(inst) then
-          wreg                               := '0';
+        if is_diag(active, inst) then
+          -- Diagnostic stores have no destination
+          if is_diag_store(inst) then
+            wreg := '0';
+          end if;
+        else
+          -- Non-diagnostic custom0 assumed to have destination
+          -- (or are "don't care" due to being illegal).
         end if;
+
       when others =>
+        -- Everything else has an rd (or are "don't care" due to being illegal).
     end case;
 
     if rd = "00000" then
@@ -4176,47 +4452,63 @@ package body nvsupport is
   -- Returns the rs1 field in case it is valid and integer, otherwise x0.
   function rs1_gen(active : extension_type;
                    inst   : word) return reg_t is
-    variable ext_zfa : boolean     := is_enabled(active, x_zfa);
-    variable op      : opcode_type := opcode(inst);
-    variable funct3  : funct3_type := funct3(inst);
-    variable funct5  : funct5_type := funct5(inst);
-    variable rs2     : reg_t       := rs2(inst);
+    variable ext_zfa     : boolean     := is_enabled(active, x_zfa);
+    variable op          : opcode_type := opcode(inst);
+    variable funct3      : funct3_type := funct3(inst);
+    variable funct5      : funct5_type := funct5(inst);
+    variable rs2         : reg_t       := rs2(inst);
     -- Non-constant
-    variable rs1     : reg_t       := rs1(inst);
-    variable vreg    : std_ulogic  := '1';
+    variable rs1         : reg_t       := rs1(inst);
+    variable vreg        : std_ulogic  := '1';
   begin
+    -- Check for the cases where there is no rs1
     case op is
-      when LUI       | AUIPC    | OP_JAL |
-           OP_FMADD  | OP_FMSUB |
-           OP_FNMSUB | OP_FNMADD =>
+      when LUI | OP_JAL =>
+        -- Immediate value
         vreg := '0';
+
+      when AUIPC =>
+        -- Immediate value
+        vreg := '0';
+
       when OP_SYSTEM =>
-        -- I_CSRRWI, I_CSRRSI, I_CSRRCI
-        if is_csr_access(inst) and funct3(2) = '1' then
+        -- Among SYSTEM instructions, rs1 use is limited to
+        -- (non-immediate value) CSR instructions,
+        -- sfence.vma, hfence.v/gvma, hlv/hsv,
+        -- and some Zicfiss.
+        if is_csr_access(inst) and funct3(2) = '1' then  -- I_CSRRWI, I_CSRRSI, I_CSRRCI?
           vreg  := '0';
         end if;
-        -- Only CSR, sfence.vma, hfence.v/gvma, hvl/hsv and some Zisslpcfi among SYSTEM
-        -- instructions have rs1.
         if is_used_mop_rs1(active,
                            inst) then
           null;
         elsif not (is_csr_access(inst) or
-                   is_sfence_vma(inst) or is_hfence_vvma(inst) or is_hfence_gvma(inst) or
+                   is_sfence_vma(active, inst)  or
+                   is_hfence_vvma(active, inst) or is_hfence_gvma(active, inst) or
                    is_hlsv(inst)) then
           vreg  := '0';
         end if;
+
+      when OP_FMADD | OP_FMSUB | OP_FNMSUB | OP_FNMADD =>
+        -- Most FPU operations have no rs1
+        vreg := '0';
+
       when OP_FP =>
+        -- Most FPU operations have no rs1
         case funct5 is
           when R_FCVT_S_W =>
+            -- Conversions from integer
           when R_FMV_W_X =>
-            -- FLI.S/D/H
+            -- Mostly moves from integer (except FLI.S/D/H)
             if ext_zfa and rs2 = "00001" then
               vreg := '0';
             end if;
           when others =>
             vreg   := '0';
         end case;
+
       when others =>
+        -- Everything else has an rs1 (or are "don't care" due to being illegal).
     end case;
 
     -- This is used to make sure we do not accidentally
@@ -4244,34 +4536,51 @@ package body nvsupport is
     variable rs2     : reg_t       := rs2(inst);
     variable vreg    : std_ulogic  := '1';
   begin
+    -- Check for rs2 use
     case op is
       when OP_REG | OP_BRANCH | OP_STORE | OP_32 =>
+        -- All of these do have an rs2.
+
       when OP_SYSTEM =>
-        -- Only sfence.vma, sfence.vma, hfence.v/gvma, hsv and some Zisslpcfi among SYSTEM
-        -- instructions have rs2.
+        -- Among SYSTEM instructions, rs2 use is limited to
+        -- sfence.vma, sfence.vma, hfence.v/gvma, hsv,
+        -- and some Zicfiss.
         if is_used_mop_rs2(active,
                            inst) then
           null;
-        elsif not (is_sfence_vma(inst) or
-                   is_hfence_vvma(inst) or is_hfence_gvma(inst) or
+        elsif not (is_sfence_vma(active, inst)  or
+                   is_hfence_vvma(active, inst) or is_hfence_gvma(active, inst) or
                    is_hsv(inst)) then
-          vreg                := '0';
+          vreg := '0';
         end if;
+
       when OP_AMO =>
+        -- Most AMO instructions do have an rs2.
         case funct5 is
           when R_LR   => vreg := '0';
           when others =>
         end case;
+
       when OP_FP =>
-        -- FMVP.D.X
+        -- Only a single FPU instruction (FMVP.D.X) has an rs2.
         if not (ext_zfa and is_rv32 and funct7 = R_FMVP_D_X and funct3 = "000") then
-          vreg                := '0';
-        end if;
-      when OP_CUSTOM0 =>
-        if not is_diag(inst) then
           vreg := '0';
         end if;
-      when others     => vreg := '0';
+
+      when OP_CUSTOM0 =>
+        if is_diag(active, inst) then
+          -- Diagnostic loads have no rs2
+          if not is_diag_store(inst) then
+            vreg := '0';
+          end if;
+        else
+          -- Non-diagnostic custom0 assumed to have an rs2
+          -- (or are "don't care" due to being illegal).
+        end if;
+
+      when others =>
+        -- Everything else lacks an rs2.
+        vreg := '0';
     end case;
 
     -- This is used to make sure we do not accidentally
@@ -4284,14 +4593,12 @@ package body nvsupport is
     return rs2;
   end;
 
--- pragma translate_off
   function rd_gen(inst : word) return std_ulogic is
     variable active : extension_type := extension_all xor config_all;
   begin
-    return rd_gen(active, 
+    return rd_gen(active,
                   inst);
   end;
--- pragma translate_on
 
   -- Must the instruction be handled in lane 0?
   function for_lane0(active : extension_type;
@@ -4310,28 +4617,28 @@ package body nvsupport is
       return true;
     end if;
 
-    if is_sfence_vma(inst) then
+    if is_sfence_vma(active, inst) then
       return true;
     end if;
 
     -- Hypervisor instructions are either fence, load, or store.
-    if ext_h and (is_hfence_vvma(inst) or is_hfence_gvma(inst) or is_hlsv(inst)) then
+    if ext_h and (is_hfence_vvma(active, inst) or is_hfence_gvma(active, inst) or is_hlsv(inst)) then
       return true;
     end if;
 
     -- Custom diagnostic cache instruction
-    if is_diag(inst) then
+    if is_diag(active, inst) then
       return true;
     end if;
 
      -- Writes to PMPCFG lock bits, DFEATURESEN or SATP require the pipeline to be flushed.
      -- To simplify PC logic, such CSR writes always issue alone, but
      -- this also ensures that all CSR accesses are in the proper lane
-    if maybe_csr(active,
-                 inst) then
+
+    if is_csr(active,
+              inst) then
       return true;
     end if;
-
 
     -- While floating point load/store need to be in lane 0, and are taken
     -- care of above, the other FPU instructions may also be forced here.
@@ -4480,7 +4787,8 @@ package body nvsupport is
 
       when CSR_MIREG   | CSR_MISELECT   | CSR_MTOPEI  |
            CSR_SIREG   | CSR_SISELECT   | CSR_STOPEI  |
-           CSR_VSIREG  | CSR_VSISELECT  | CSR_VSTOPEI | CSR_HSTATUS =>
+           CSR_VSIREG  | CSR_VSISELECT  | CSR_VSTOPEI |
+           CSR_HGEIP   | CSR_HSTATUS =>
         category(3 downto 0) := x"8";
 
       when CSR_MENVCFG | CSR_SENVCFG | CSR_HENVCFG =>
@@ -4490,20 +4798,24 @@ package body nvsupport is
         -- No category if low nybble is 0.
     end case;
 
-    -- Some CSR writes need to issue alone (see also below).
+    -- Some CSR writes need to issue alone.
+    -- Changes to interrupt enable must not dual-issue, to prevent interrupt
+    --  traps from being taken in a pair with such a CSR write.
+    -- Changing delegation can also enable/disable an interrupt.
+    -- A paired instruction faulting would get the wrong exception vector.
+    -- Setting of interrupt pending should normally not cause an interrupt
+    --  in the current mode, but add those here to avoid any potential issue.
     case addr is
-      -- Changes to interrupt enable must not dual-issue, to prevent interrupt
-      -- traps from being taken in a pair with such a CSR write.
-      -- VSSTATUS
-      --   Should not be included here since writes to it are only done in
-      --   modes that are not affected by it!
-      when CSR_MSTATUS  | CSR_SSTATUS | CSR_USTATUS | CSR_HSTATUS |
-           CSR_MIE      | CSR_SIE     | CSR_UIE     | CSR_HIE     |
-           CSR_HGEIE    |
-           -- Changing delegation can also enable/disable an interrupt.
-           CSR_MIDELEG  | CSR_SIDELEG | CSR_HIDELEG |
-           -- A paired instruction faulting would get the wrong exception vector.
-           CSR_MTVEC    | CSR_STVEC   | CSR_VSTVEC  | CSR_UTVEC =>
+      -- VSSTATUS, VSIE, VSIP, VSTVEC
+      --   Should perhaps not be included here since writes to them are only
+      --   done in modes that are not affected by them!
+      when CSR_MSTATUS  | CSR_MIE  | CSR_MIP  | CSR_MIDELEG  | CSR_MTVEC  |
+           CSR_HSTATUS  | CSR_HIE  | CSR_HIP  | CSR_HIDELEG  |
+           CSR_SSTATUS  | CSR_SIE  | CSR_SIP  |                CSR_STVEC  |
+           CSR_VSSTATUS | CSR_VSIE | CSR_VSIP |                CSR_VSTVEC |
+           -- HGEIP is read-only
+           CSR_HGEIE    | CSR_HVIP =>
+
         category(5) := '1';
       when others => null;
     end case;
@@ -4604,6 +4916,16 @@ package body nvsupport is
       when others => null;
     end case;
 
+
+    -- These CSRs should be updated before more instructions to through the execute
+    -- stage to prevent triggers from incorrectly match/not match these instructions
+    case addr is
+      when CSR_TDATA1   |
+           CSR_MCONTEXT | CSR_SCONTEXT | CSR_HCONTEXT =>
+        category(10) := '1';
+      when others => null;
+    end case;
+
     return category;
   end;
 
@@ -4614,6 +4936,8 @@ package body nvsupport is
   end;
 
   function csr_addr(active : extension_type; inst : word) return csratype is
+    variable funct7      : funct7_type  := funct7(inst);
+    variable funct12     : funct12_type := funct12(inst);
   begin
       return csr_access_addr(inst);
   end;
@@ -4669,11 +4993,13 @@ package body nvsupport is
     variable opcode_1  : opcode_type;  --  locally static object
     variable funct7_1  : funct7_type;  --  subtypes for case statements.
   begin
+-- pragma translate_off
     assert valid_in'left  >= valid_in'right and
            valid_in'left   = lalu_in'left   and
            valid_in'left   = issue_out'left and
            valid_in'length = lalu_in'length
       report "Bad type" severity failure;
+-- pragma translate_on
     for i in lanes'range loop
       inst_in(i)  := instx_in(i).d;
       opcode(i)   := get_opcode(inst_in(i));
@@ -4705,11 +5031,13 @@ package body nvsupport is
           conflict := '1';
         end if;
 
-      -- Custom0 instruction is diagnostic load/store
       when OP_CUSTOM0 =>
-        if for_lane0(active,
-                     lane, inst_in(one)) then
-          conflict := '1';
+        -- Diagnostic load/store?
+        if is_diag(active, inst_in(0)) then
+          if for_lane0(active,
+                       lane, inst_in(one)) then
+            conflict := '1';
+          end if;
         end if;
 
       when OP_JAL | OP_JALR =>
@@ -4719,8 +5047,9 @@ package body nvsupport is
 
       when OP_BRANCH =>
         if late_branch then
-          if not (opcode_1 = OP_REG or opcode_1 = OP_32 or opcode_1 = OP_IMM_32 or opcode_1 = OP_IMM
-                  or opcode_1 = LUI or opcode_1 = AUIPC) then
+          if not (opcode_1 = OP_REG    or opcode_1 = OP_32  or
+                  opcode_1 = OP_IMM_32 or opcode_1 = OP_IMM or
+                  opcode_1 = LUI       or opcode_1 = AUIPC) then
             conflict := '1';
           end if;
         end if;
@@ -4766,7 +5095,7 @@ package body nvsupport is
           --   wfi
           -- Further extensions with funct3=000 may require a rethink of this.
           conflict := '1';
-        when "100"  =>  -- Hypervisor load/store must be in lane 0, and several Zisslpcfi.
+        when "100"  =>  -- Hypervisor load/store must be in lane 0, and several Zicfiss.
           -- There may at some later point be other instructions with funct3=100.
           -- Then further checks will be needed here!
           if (ext_h and is_hlsv(inst_in(0))) or
@@ -4894,6 +5223,7 @@ package body nvsupport is
       end loop;
     end if;
 
+
     -- This is the same as for pipe 0 above.
     -- Writes to some CSRs require the pipeline to be flushed. To simplify PC logic,
     -- ensure that such CSR writes always issue alone.
@@ -4902,6 +5232,32 @@ package body nvsupport is
        csr_category(csr_access_addr(inst_in(one)))(5) = '1' then
       conflict := '1';
     end if;
+
+
+    -- If we are issuing a CSR read that reads a performance counter this cannot be
+    -- issued together with a instruction that comes first in program order. 
+    if (is_csr_access(inst_in(one)) and 
+       unsigned(csr_category(csr_access_addr(inst_in(one)))(3 downto 0)) = 5)  then
+      conflict := '1';
+    end if;
+
+
+    -- ICOUNT trigger match is calculated in the execution stage. It matches when the instruction count in TDATA1 minus the
+    -- valid instructions in the memory and exception stages is 1 or 0. Therefore, if the instruction that writes
+    -- TDATA1 is in the lane 0, and instruction that goes after the CSR write is in the lane one, the last instruction is not
+    -- taken into account to evaluate if the icount trigger matches in case it is set to 1.
+    if (is_csr_access(inst_in(0)) and not csr_access_read_only(inst_in(0)) and csr_access_addr(inst_in(0)) = CSR_TDATA1) or
+       (is_csr_access(inst_in(one)) and not csr_access_read_only(inst_in(one)) and csr_access_addr(inst_in(one)) = CSR_TDATA1) then
+      conflict := '1';
+    end if;
+
+    -- We want to annull next instructions and it is
+    -- easier if wfi is issued alone.
+    -- for lane 0 the conflict is already set to 1
+    if is_wfi(inst_in(1)) then
+      conflict := '1';
+    end if;
+
 
 
     -- Instruction register dependency:
@@ -4928,7 +5284,7 @@ package body nvsupport is
       if rd(0) = rfa1(one) or rd(0) = rfa2(one) then
         case opcode_1 is
           when OP_LOAD   | OP_LOAD_FP |  -- Load (address)
-               OP_SYSTEM |               -- System or CSR (also covers SSCHKRA)
+               OP_SYSTEM |               -- System or CSR
                OP_FENCE  |               -- Fence
                OP_FP     |               -- Floating point operation with integer input
                OP_JALR =>                -- Jump and link register (this is resolved early)
@@ -4948,7 +5304,21 @@ package body nvsupport is
             end if;
 
           when OP_CUSTOM0 =>
-            conflict   := '1';
+            if is_diag(active, inst_in(one)) then
+              -- Needs swap to lane 0
+              conflict   := '1';
+            elsif is_custom_alu(active, inst_in(one)) then
+              -- Custom ALU operation in second lane (if late ALU feature is disabled)
+              -- (This is the same as for normal ALU operations below.)
+              if lalu_dis = '1' or not late_alu then
+                conflict := '1';
+              end if;
+               -- Instruction in RA has been issued to late ALUs
+              if ((rd0_in = rfa1(0) or rd0_in = rfa2(0)) and lalu_in(0) = '1' and rdv0_in = '1') or
+                 ((rd1_in = rfa1(0) or rd1_in = rfa2(0)) and lalu_in(one) = '1' and rdv1_in = '1') then
+                conflict := '1';
+              end if;
+            end if;
 
           -- Branch in second lane (if late branch feature is disabled)
           when OP_BRANCH =>
@@ -5368,26 +5738,28 @@ package body nvsupport is
   function fusel_gen(active : extension_type;
                      inst   : word
                     ) return fuseltype is
-    variable ext_noelv     : boolean      := is_enabled(active, x_noelv);
-    variable ext_a         : boolean      := is_enabled(active, x_a);
-    variable ext_f         : boolean      := is_enabled(active, x_f);
-    variable ext_h         : boolean      := is_enabled(active, x_h);
-    variable ext_zbc       : boolean      := is_enabled(active, x_zbc);
-    variable ext_zbkc      : boolean      := is_enabled(active, x_zbkc);
-    variable ext_zimops    : boolean      := is_enabled(active, x_zimops);
-    variable op            : opcode_type  := opcode(inst);
-    variable rd            : reg_t        := rd(inst);
-    variable rfa1          : reg_t        := rs1(inst);
-    variable rfa2          : reg_t        := rs2(inst);
-    variable funct3        : funct3_type  := funct3(inst);
-    variable funct5        : funct5_type  := funct5(inst);
-    variable funct7        : funct7_type  := funct7(inst);
-    variable funct12       : funct12_type := funct12(inst);
+    variable ext_noelv   : boolean      := is_enabled(active, x_noelv);
+    variable ext_a       : boolean      := is_enabled(active, x_a);
+    variable ext_f       : boolean      := is_enabled(active, x_f);
+    variable ext_h       : boolean      := is_enabled(active, x_h);
+    variable ext_zbc     : boolean      := is_enabled(active, x_zbc);
+    variable ext_zbkc    : boolean      := is_enabled(active, x_zbkc);
+    variable ext_zimop   : boolean      := is_enabled(active, x_zimop);
+    variable op          : opcode_type  := opcode(inst);
+    variable rd          : reg_t        := rd(inst);
+    variable rfa1        : reg_t        := rs1(inst);
+    variable rfa2        : reg_t        := rs2(inst);
+    variable funct3      : funct3_type  := funct3(inst);
+    variable funct5      : funct5_type  := funct5(inst);
+    variable funct7      : funct7_type  := funct7(inst);
+    variable funct12     : funct12_type := funct12(inst);
     -- Non-constant
-    variable fusel         : fuseltype   := NONE;
+    variable fusel       : fuseltype    := NONE;
   begin
     case op is
-      when LUI | AUIPC | OP_IMM | OP_IMM_32 =>
+      when LUI | OP_IMM | OP_IMM_32 =>
+        fusel     := ALU;
+      when AUIPC =>
         fusel     := ALU;
       when OP_AMO =>
         if ext_a then
@@ -5427,7 +5799,7 @@ package body nvsupport is
       when OP_BRANCH =>
         fusel     := BRANCH;
       when OP_SYSTEM =>
-        if (ext_h or ext_zimops) and funct3 = "100" then
+        if (ext_h or ext_zimop) and funct3 = "100" then
           case funct7 is
             when F7_HLVB | F7_HLVH | F7_HLVW | F7_HLVD =>
               if ext_h then
@@ -5437,31 +5809,15 @@ package body nvsupport is
               if ext_h then
                 fusel := ST;
               end if;
-            when F7_MOPR_000 =>
-              if ext_zimops then
+            when F7_MOPR_0  | F7_MOPR_4  | F7_MOPR_8  | F7_MOPR_12 |
+                 F7_MOPR_16 | F7_MOPR_20 | F7_MOPR_24 | F7_MOPR_28 =>
+              if ext_zimop then
                 fusel := ALU;
               end if;
-            when F7_MOPR_001 | F7_MOPR_010 | F7_MOPR_011 | F7_MOPR_100 |
-                 F7_MOPR_101 | F7_MOPR_110 | F7_MOPR_111 =>
-              if ext_zimops then
-                fusel := ALU;
-              end if;
-            when F7_MOPRR_000 =>
-              if ext_zimops then
+            when F7_MOPRR_0 | F7_MOPRR_1 | F7_MOPRR_2 | F7_MOPRR_3 |
+                 F7_MOPRR_4 | F7_MOPRR_5 | F7_MOPRR_6 | F7_MOPRR_7  =>
+              if ext_zimop then
                 fusel   := ALU;
-              end if;
-            when F7_MOPRR_001 =>
-              if ext_zimops then
-                fusel := ALU;
-              end if;
-            when F7_MOPRR_010 =>
-              if ext_zimops then
-                fusel := ALU;
-              end if;
-            when F7_MOPRR_011 | F7_MOPRR_100 | F7_MOPRR_101 |
-                 F7_MOPRR_110 | F7_MOPRR_111  =>
-              if ext_zimops then
-                fusel := ALU;
               end if;
             when others =>
               -- Nothing else is possible!
@@ -5471,12 +5827,14 @@ package body nvsupport is
           fusel   := ALU;
         end if;
       when OP_CUSTOM0 =>
-        if ext_noelv then
-          if funct3(2) = '0' then
-            fusel := (DIAG or LD);
-          else
+        if is_diag(active, inst) then
+          if is_diag_store(inst) then
             fusel := (DIAG or ST);
+          else
+            fusel := (DIAG or LD);
           end if;
+        elsif is_custom_alu(active, inst) then
+          fusel   := ALU;
         end if;
       when others => null;
     end case;
@@ -5533,12 +5891,12 @@ package body nvsupport is
                      xc_out    : out std_ulogic;
                      cause_out : out cause_type;
                      tval_out  : out wordx) is
-    variable ext_a      : boolean     := is_enabled(active, x_a);
-    variable ext_h      : boolean     := is_enabled(active, x_h);
-    variable ext_zicbom : boolean     := is_enabled(active, x_zicbom);
-    variable funct3     : funct3_type := funct3(inst_in);
-    variable rfa1       : reg_t       := rs1(inst_in);
-    variable size       : word2       := funct3(1 downto 0);
+    variable ext_a       : boolean     := is_enabled(active, x_a);
+    variable ext_h       : boolean     := is_enabled(active, x_h);
+    variable ext_zicbom  : boolean     := is_enabled(active, x_zicbom);
+    variable funct3      : funct3_type := funct3(inst_in);
+    variable rfa1        : reg_t       := rs1(inst_in);
+    variable size        : word2       := funct3(1 downto 0);
     -- Non-constant
     variable xc     : std_ulogic  := '0';
     variable cause  : cause_type  := (others => '0');
@@ -5549,8 +5907,8 @@ package body nvsupport is
 
     if (ext_a and v_fusel_eq(fusel_in, AMO)) or
        (ext_h and
-        (is_hlsv(inst_in) or is_hfence_vvma(inst_in) or is_hfence_gvma(inst_in))) or
-       is_sfence_vma(inst_in) or
+        (is_hlsv(inst_in) or is_hfence_vvma(active, inst_in) or is_hfence_gvma(active, inst_in))) or
+       is_sfence_vma(active, inst_in) or
        v_fusel_eq(fusel_in, DIAG) or
        (ext_zicbom and is_cbo(inst_in)) then
       op2 := (others => '0');
@@ -5680,6 +6038,7 @@ package body nvsupport is
                             tval_ill0 : in  boolean;
                             inst_in   : in  word;
                             cinst_in  : in  word16;
+                            comp      : in  std_ulogic;
                             pc_in     : in  std_logic_vector;  -- pctype
                             comp_ill  : in  std_ulogic;
                             misa_in   : in  wordx;
@@ -5695,51 +6054,59 @@ package body nvsupport is
                             xc_out    : out std_ulogic;
                             cause_out : out cause_type;
                             tval_out  : out wordx) is
-    variable is_rv64       : boolean       := is_enabled(active, x_rv64);
-    variable is_rv32       : boolean       := not is_rv64;
-    variable ext_noelv     : boolean       := is_enabled(active, x_noelv);
-    variable ext_a         : boolean       := is_enabled(active, x_a);
-    variable ext_m         : boolean       := is_enabled(active, x_m);
-    variable ext_smrnmi    : boolean       := is_enabled(active, x_smrnmi);
-    variable ext_zimops    : boolean       := is_enabled(active, x_zimops);
-    variable h_en          : boolean       := misa_in(h_ctrl) = '1';
-    variable x_en          : boolean       := misa_in(x_ctrl) = '1';
-    variable rfa1          : reg_t         := rs1(inst_in);
-    variable rfa2          : reg_t         := rs2(inst_in);
-    variable rd            : reg_t         := rd(inst_in);
-    variable opcode        : opcode_type   := opcode(inst_in);
-    variable funct3        : funct3_type   := funct3(inst_in);
-    variable funct7        : funct7_type   := funct7(inst_in);
-    variable funct12       : funct12_type  := funct12(inst_in);
-    variable funct5        : funct5_type   := funct5(inst_in);
+    variable is_rv64     : boolean       := is_enabled(active, x_rv64);
+    variable is_rv32     : boolean       := not is_rv64;
+    variable ext_noelv   : boolean       := is_enabled(active, x_noelv);
+    variable ext_a       : boolean       := is_enabled(active, x_a);
+    variable ext_m       : boolean       := is_enabled(active, x_m);
+    variable ext_smrnmi  : boolean       := is_enabled(active, x_smrnmi);
+    variable ext_zimop   : boolean       := is_enabled(active, x_zimop);
+    variable ext_svinval : boolean       := is_enabled(active, x_svinval);
+    variable h_en        : boolean       := misa_in(h_ctrl) = '1';
+    variable x_en        : boolean       := misa_in(x_ctrl) = '1';
+    variable rfa1        : reg_t         := rs1(inst_in);
+    variable rfa2        : reg_t         := rs2(inst_in);
+    variable rd          : reg_t         := rd(inst_in);
+    variable opcode      : opcode_type   := opcode(inst_in);
+    variable funct3      : funct3_type   := funct3(inst_in);
+    variable funct7      : funct7_type   := funct7(inst_in);
+    variable funct12     : funct12_type  := funct12(inst_in);
+    variable funct5      : funct5_type   := funct5(inst_in);
     -- Non-constant
-    variable xc_v          : std_ulogic    := '0'; -- Virtual instruction exception
-    variable hv_op         : std_ulogic    := '0';
-    variable hv_valid      : std_ulogic    := '0';
-    variable zimops_op     : std_ulogic    := '0';
-    variable illegal       : std_ulogic    := '0';
-    variable xc            : std_ulogic;
-    variable prv           : priv_lvl_type := prv_in;
-    variable ecall         : std_ulogic    := '0';
-    variable ebreak        : std_ulogic    := '0';
-    variable cause         : cause_type;
-    variable tval          : wordx;
+    variable xc_v        : std_ulogic    := '0'; -- Virtual instruction exception
+    variable hv_op       : std_ulogic    := '0';
+    variable hv_valid    : std_ulogic    := '0';
+    variable zimop_op    : std_ulogic    := '0';
+    variable illegal     : std_ulogic    := '0';
+    variable xc          : std_ulogic;
+    variable prv         : priv_lvl_type := prv_in;
+    variable ecall       : std_ulogic    := '0';
+    variable ebreak      : std_ulogic    := '0';
+    variable cause       : cause_type;
+    variable tval        : wordx;
   begin
     case opcode is
-      when LUI | AUIPC | OP_JAL =>
-        -- LUI/AUIPC with rd = x0 are standard HINTs.
+      when LUI | OP_JAL =>
+        -- LUI with rd = x0 are standard HINTs.
         null;
+
+      when AUIPC =>
+        -- AUIPC with rd = x0 are standard HINTs.
+        null;
+
       when OP_JALR =>
         case funct3 is
           when I_JALR => null;
           when others => illegal := '1';
         end case;
+
       when OP_BRANCH =>
         case funct3 is
           when B_BEQ | B_BNE  | B_BLT |
                B_BGE | B_BLTU | B_BGEU => null;
           when others                  => illegal := '1';
         end case;
+
       when OP_LOAD =>
         case funct3 is
           when I_LB  | I_LH  | I_LW  |
@@ -5749,6 +6116,7 @@ package body nvsupport is
         if is_rv32 and funct3 = I_LD then
           illegal := '1';
         end if;
+
       when OP_STORE =>
         case funct3 is
           when S_SB | S_SH | S_SW | S_SD => null;
@@ -5757,22 +6125,23 @@ package body nvsupport is
         if is_rv32 and funct3 = S_SD then
           illegal := '1';
         end if;
+
       when OP_IMM | OP_IMM_32 =>
         illegal := not to_bit(alu_ok);
+
       when OP_REG =>
         if funct7 = F7_MUL then
           if ext_m then
-            case funct3 is
-              when R_MUL | R_MULH | R_MULHSU | R_MULHU |
-                   R_DIV | R_DIVU | R_REM    | R_REMU => null;
-              when others => illegal := '1';
-            end case;
+            -- No need to check funct3 here!
+            -- R_MUL / R_MULH / R_MULHSU / R_MULHU and
+            -- R_DIV / R_DIVU / R_REM / R_REMU are all OK.
           else
             illegal := '1';
           end if;
         else
           illegal := not to_bit(alu_ok);
         end if;
+
       when OP_32 =>
         if funct7 = F7_MUL then
           if ext_m and is_rv64 then
@@ -5786,6 +6155,7 @@ package body nvsupport is
         else
           illegal := not to_bit(alu_ok);
         end if;
+
       when OP_FENCE =>
         case funct3 is
           when I_FENCE =>
@@ -5796,7 +6166,9 @@ package body nvsupport is
               -- rd  = x0, rs1  = x0, fm = 0, pred  = 0, succ /= 0 are standard HINTs.
               -- rd  = x0, rs1  = x0, fm = 0, pred /= W, succ  = 0 are standard HINTs.
               -- rd  = x0, rs1  = x0, fm = 0, pred  = W, succ  = 0 is standard HINT (PAUSE).
+
           when I_FENCE_I =>
+
           when I_CBO =>
             if inst_in(31 downto 23) /= zerow(31 downto 23) or
                (inst_in(22) = '1' and (envcfg.cbze = '0' or inst_in(21 downto 20) /= "00") ) or -- cbo.zero
@@ -5810,9 +6182,11 @@ package body nvsupport is
                 xc_v := '1';
               end if;
             end if;
+
           when others =>
             illegal := '1';
         end case;
+
       when OP_SYSTEM =>
         case funct3 is
           when "000" =>
@@ -5822,14 +6196,15 @@ package body nvsupport is
               case funct7 is
                 when F7_URET => -- ECALL, EBREAK, URET (not supported)
                   if rfa1 = "00000" then
-                    case rs2(inst_in) is
-                      when "00000" => ecall  := '1'; -- ECALL
-                      when "00001" => ebreak := '1'; -- EBREAK
-                      when others => illegal := '1';
+                    case rfa2 is
+                      when "00000" => ecall   := '1'; -- ECALL
+                      when "00001" => ebreak  := '1'; -- EBREAK
+                      when others  => illegal := '1';
                     end case;
                   else
                     illegal := '1';
                   end if;
+
                 when F7_SRET => -- SRET, WFI
                   if rfa1 = "00000" then
                     case rfa2 is
@@ -5851,6 +6226,7 @@ package body nvsupport is
                           illegal := '1';
                           xc_v := '1';
                         end if;
+
                       when "00101" => -- WFI
                         -- The TW (Timeout Wait) bit supports intercepting the WFI instruction.
                         -- When TW=0, the WFI instruction is permitted in S-mode.
@@ -5860,24 +6236,33 @@ package body nvsupport is
                         -- may always be 0, in which case WFI always causes an illegal instruction
                         -- trap in S-mode when TW=1. TW is hard-wired to 0 when
                         -- S-mode is not supported.
-                        -- WFI is available in all privileged modes, and optionally available to U-mode.
+                        -- When S-mode is implemented, then executing WFI in U-mode causes an
+                        -- illegal instruction exception
+
+                        -- In VS-mode, attempts to execute WFI when hstatus.VTW=1 and mstatus.TW=0, or
+                        -- in VU-mode, attempts to execute WFI when mstatus.TW=0, will raise a virtual
+                        -- instruction trap.
+
                         if ((not h_en) or v_in = '0') and
                            (prv_in = PRIV_LVL_U or (prv_in = PRIV_LVL_S and tw_in = '1')) then
-                          illegal := '1'; -- timeout = 0
+                          illegal := '1';    -- timeout = 0
+                        elsif (h_en and v_in = '1') then
+                          if tw_in = '1' then
+                            illegal := '1';  -- timeout = 0
+                          elsif (prv_in = PRIV_LVL_S and vtw_in = '1') or
+                                (prv_in = PRIV_LVL_U) then
+                            illegal := '1';  -- timeout = 0
+                            xc_v := '1';
+                          end if;
                         end if;
-                        -- In VS-mode, attempts to execute WFI when hstatus.VTW=1 and mstatus.TW=0, or
-                        -- in VU-mode, attempts to execute WFI, will raise a virtual instruction trap.
-                        if (h_en and v_in = '1') and ((prv_in = PRIV_LVL_S and vtw_in = '1' and tw_in = '0') or
-                                                      prv_in = PRIV_LVL_U) then
-                          illegal := '1';
-                          xc_v := '1';
-                        end if;
+
                       when others =>
                         illegal := '1';
                     end case;
                   else
                     illegal := '1';
                   end if;
+
                 when F7_MRET =>
                   if rfa1 = "00000" and rfa2 = "00010" then
                     if prv_in = PRIV_LVL_S or prv_in = PRIV_LVL_U then
@@ -5886,6 +6271,7 @@ package body nvsupport is
                   else
                     illegal   := '1';
                   end if;
+
                 when F7_MNRET =>
                   if rfa1 = "00000" and rfa2 = "00010" and ext_smrnmi then
                     if prv_in = PRIV_LVL_S or prv_in = PRIV_LVL_U then
@@ -5894,7 +6280,8 @@ package body nvsupport is
                   else
                     illegal   := '1';
                   end if;
-                when F7_SFENCE_VMA =>
+
+                when F7_SFENCE_VMA | F7_SINVAL_VMA =>
                   -- The TVM (Trap Virtual Memory) bit supports intercepting supervisor
                   -- virtual-memory management operations. When TVM=1, attempts to read
                   -- or write the satp CSR, or execute the SFENCE.VMA instruction while
@@ -5907,107 +6294,141 @@ package body nvsupport is
                   -- In VS-mode, attempts to execute an SFENCE instruction when hstatus.VTVM=1, or
                   -- in VU-mode, attempts to execute an SFENCE instruction, will raise a virtual
                   -- instruction trap.
-                   if (h_en and v_in = '1') and ((prv_in = PRIV_LVL_S and vtvm_in = '1') or
-                                                  prv_in = PRIV_LVL_U) then
-                     illegal := '1';
-                     xc_v := '1';
-                   end if;
+                  if (h_en and v_in = '1') and ((prv_in = PRIV_LVL_S and vtvm_in = '1') or
+                                                 prv_in = PRIV_LVL_U) then
+                    illegal := '1';
+                    xc_v    := '1';
+                  end if;
 
-                   if(prv_in = PRIV_LVL_U) then
-                     illegal := '1';
-                   end if;
+                  if prv_in = PRIV_LVL_U then
+                    illegal := '1';
+                  end if;
 
-                when F7_HFENCE_VVMA =>
+                  if not ext_svinval and funct7 = F7_SINVAL_VMA then
+                    illegal := '1';
+                    xc_v    := '0';
+                  end if;
+
+                when F7_SFENCE_INVAL =>
+                  -- According to the standard, these never need to trap on TVM/VTVM.
+                  if ext_svinval then
+                    if rfa1 /= "00000" or (rfa2 /= "00000" and rfa2 /= "00001") then
+                      illegal := '1';
+                    end if;
+                  else
+                    illegal   := '1';
+                  end if;
+
+                when F7_HFENCE_VVMA | F7_HINVAL_VVMA =>
                   if h_en then
                     if v_in = '1' then
                       illegal := '1';
-                      xc_v := '1';
+                      xc_v    := '1';
                     end if;
                   else
-                    illegal := '1';
+                    illegal   := '1';
                   end if;
-                when F7_HFENCE_GVMA =>
+
+                  if not ext_svinval and funct7 = F7_HINVAL_VVMA then
+                    illegal   := '1';
+                    xc_v      := '0';
+                  end if;
+
+                when F7_HFENCE_GVMA | F7_HINVAL_GVMA =>
                   if h_en then
                     if v_in = '0' then
                       if (prv_in = PRIV_LVL_S and tvm_in = '1') or prv_in = PRIV_LVL_U then
                         illegal := '1';
                       end if;
                     else
-                      illegal := '1';
-                      xc_v := '1';
+                      illegal   := '1';
+                      xc_v      := '1';
                     end if;
                   else
-                    illegal := '1';
+                    illegal     := '1';
                   end if;
+
+                  if not ext_svinval and funct7 = F7_HINVAL_GVMA then
+                    illegal     := '1';
+                    xc_v        := '0';
+                  end if;
+
                 when others =>
                   illegal := '1';
               end case;
             end if;
-        when "100" =>
-          case funct7 is
-            when F7_HLVB =>
-              hv_op := '1';
-              if rfa2 = "00000" or rfa2 = "00001" then
-                hv_valid := '1';
-              end if;
-            when F7_HLVH =>
-              hv_op := '1';
-              if rfa2 = "00000" or rfa2 = "00001" or rfa2 = "00011" then
-                hv_valid := '1';
-              end if;
-            when F7_HLVW =>
-              hv_op := '1';
-              if rfa2 = "00000" or rfa2 = "00001" or rfa2 = "00011" then
-                hv_valid := '1';
-              end if;
-            when F7_HLVD =>
-              hv_op := '1';
-              if rfa2 = "00000" then
-                hv_valid := '1';
-              end if;
-            when F7_HSVB | F7_HSVH | F7_HSVW | F7_HSVD =>
-              hv_op := '1';
-              if rd = "00000" then
-                hv_valid := '1';
-              end if;
-            when F7_MOPR_000 =>  --  Possibly shadow stack
-              zimops_op := '1';
-            when F7_MOPR_001 | F7_MOPR_010 | F7_MOPR_011 |
-                 F7_MOPR_100 | F7_MOPR_101 | F7_MOPR_110 | F7_MOPR_111  =>
-              zimops_op := '1';
-            when F7_MOPRR_000 =>  -- F7_LPL_SSWAP
-              zimops_op := '1';
-            when F7_MOPRR_001 =>  -- F7_LPMU
-              zimops_op := '1';
-            when F7_MOPRR_010 =>  -- F7_SSCHKRAPUSH
-              zimops_op := '1';
-            when F7_MOPRR_011 |
-                 F7_MOPRR_100 | F7_MOPRR_101 | F7_MOPRR_110 | F7_MOPRR_111  =>
-              zimops_op := '1';
-            when others =>
-              illegal := '1';
-          end case;
-          if h_en and hv_op = '1' then
-            if hv_valid = '1' then
-              if v_in = '0' then
-                if prv_in = PRIV_LVL_U and hu = '0' then
+
+          when "100" =>
+            case funct7 is
+              when F7_HLVB =>
+                hv_op := '1';
+                if rfa2 = "00000" or rfa2 = "00001" then
+                  hv_valid := '1';
+                end if;
+
+              when F7_HLVH =>
+                hv_op := '1';
+                if rfa2 = "00000" or rfa2 = "00001" or rfa2 = "00011" then
+                  hv_valid := '1';
+                end if;
+
+              when F7_HLVW =>
+                hv_op := '1';
+                if rfa2 = "00000" or rfa2 = "00001" or rfa2 = "00011" then
+                  hv_valid := '1';
+                end if;
+
+              when F7_HLVD =>
+                hv_op := '1';
+                if rfa2 = "00000" then
+                  hv_valid := '1';
+                end if;
+
+              when F7_HSVB | F7_HSVH | F7_HSVW | F7_HSVD =>
+                hv_op := '1';
+                if rd = "00000" then
+                  hv_valid := '1';
+                end if;
+
+              when F7_MOPR_0  | F7_MOPR_4  | F7_MOPR_8  | F7_MOPR_12 |
+                   F7_MOPR_16 | F7_MOPR_20 | F7_MOPR_24 | F7_MOPR_28  =>
+                -- MOPR is really 1-00--0 111--
+                if rfa2(4 downto 2) = "111" then
+                  zimop_op := '1';
+                else
                   illegal := '1';
+                end if;
+
+              when F7_MOPRR_0 | F7_MOPRR_1 | F7_MOPRR_2 | F7_MOPRR_3 |
+                   F7_MOPRR_4 | F7_MOPRR_5 | F7_MOPRR_6 | F7_MOPRR_7  =>
+                zimop_op := '1';
+
+              when others =>
+                illegal := '1';
+            end case;
+            if h_en and hv_op = '1' then
+              if hv_valid = '1' then
+                if v_in = '0' then
+                  if prv_in = PRIV_LVL_U and hu = '0' then
+                    illegal := '1';
+                  end if;
+                else
+                  illegal := '1';
+                  xc_v := '1';
                 end if;
               else
                 illegal := '1';
-                xc_v := '1';
               end if;
+            elsif ext_zimop and zimop_op = '1' then
+              -- OK!
             else
               illegal := '1';
             end if;
-          elsif ext_zimops and zimops_op = '1' then
-            -- OK!
-          else
-            illegal := '1';
-          end if;
-        when others =>
-          -- CSR accesses always OK
+
+          when others =>
+            -- CSR accesses always OK
         end case;
+
       when OP_AMO =>
         if ext_a then
           if funct3 = R_WORD or funct3 = R_DOUBLE then
@@ -6015,7 +6436,8 @@ package body nvsupport is
               when R_LR     | R_SC     | R_AMOSWAP | R_AMOADD |
                    R_AMOXOR | R_AMOAND | R_AMOOR   |
                    R_AMOMIN | R_AMOMAX | R_AMOMINU | R_AMOMAXU => null;
-              when others => illegal := '1';
+              when others =>
+                illegal := '1';
             end case;
           else
             illegal := '1';
@@ -6026,10 +6448,12 @@ package body nvsupport is
         if is_rv32 and funct3 = R_DOUBLE then
           illegal := '1';
         end if;
+
       when OP_LOAD_FP | OP_STORE_FP |
            OP_FMADD   | OP_FMSUB    | OP_FNMSUB | OP_FNMADD |
            OP_FP =>
         illegal := not to_bit(fpu_en and fpu_ok);
+
       when OP_CUSTOM0 =>
         case funct7 is
           when F7_BASE => -- Custom diagnostic instructions
@@ -6042,9 +6466,12 @@ package body nvsupport is
             if not ext_noelv or not x_en then
               illegal := '1';
             end if;
+          when F7_BASE_RV64 => -- Custom ALU instructions
+            illegal := not to_bit(alu_ok and x_en);
           when others =>
             illegal := '1';
         end case;
+
       when others =>
         illegal := '1';
     end case; -- opcode
@@ -6059,7 +6486,7 @@ package body nvsupport is
 
     tval      := to0x(inst_in);
 
-    if comp_ill = '1' then
+    if comp_ill = '1' or (illegal = '1' and comp = '1') then
       -- Illegal compressed instruction
       tval    := to0x(cinst_in);
       illegal := '1';
@@ -6098,22 +6525,25 @@ package body nvsupport is
   end;
 
   -- Fetch pmpcfg data
-  function pmpcfg(pmp_entries : integer range 0 to 16;
-                  csr : csr_reg_type; n : natural) return word8 is
-    -- Non-constant
-    variable cfgv   : word8_arr(0 to 15);
-    variable cfg    : word8 := (others => '0');
+  function pmpcfg(pmp_entries : integer range pmpcfg_vec_type'range;
+                  cfg : pmpcfg_vec_type; n : natural) return word8 is
   begin
-    for i in 0 to 7 loop
-      cfgv(i)     := csr.pmpcfg0(i * 8 + 7 downto i * 8);
-      cfgv(i + 8) := csr.pmpcfg2(i * 8 + 7 downto i * 8);
+    if n < pmp_entries then
+      return cfg(n);
+    else
+      return x"00";
+    end if;
+  end;
+
+  function pmpcfg(cfg : pmpcfg_vec_type; first : integer; last : integer) return wordx is
+    -- Non-constant
+    variable res : wordx := zerox;
+  begin
+    for i in first to last loop
+      res((i - first) * 8 + 7 downto (i - first) * 8) := cfg(i);
     end loop;
 
-    if n < pmp_entries then
-      cfg := cfgv(n);
-    end if;
-
-    return cfg;
+    return res;
   end;
 
   function cause_bit(bits : std_logic_vector; cause : cause_type) return std_logic is
@@ -6146,6 +6576,16 @@ package body nvsupport is
     return v;
   end;
 
+  function wordx2cause(v : wordx) return cause_type is
+    -- Non-constant
+    variable cause : cause_type;
+  begin
+    cause             := v(cause'range);
+    cause(cause'high) := get_hi(v);
+
+    return cause;
+  end;
+
   function cause2vec(cause : cause_type; vec_in : std_logic_vector) return std_logic_vector is
     -- Non-constant
     variable vec : std_logic_vector(vec_in'length - 1 downto 0) := vec_in;
@@ -6159,6 +6599,10 @@ package body nvsupport is
 
   -- Interrupt code priority
   constant cause_prio : cause_arr(0 to 15) := (
+-- GRLIB_INTERNAL_BEGIN
+    -- TODO: If smrnmi isn't implemented then IRQ_NMI should have the highest priority.
+    -- IRQ_NMI,
+-- GRLIB_INTERNAL_END
     IRQ_M_EXTERNAL,  IRQ_M_SOFTWARE,  IRQ_M_TIMER,
     IRQ_S_EXTERNAL,  IRQ_S_SOFTWARE,  IRQ_S_TIMER,
     IRQ_SG_EXTERNAL,
@@ -6169,53 +6613,89 @@ package body nvsupport is
 
 
 
-  -- Initialices a vector where the index represents the interrupt cause and its value the
-  -- default priority
-  function set_cause2prio(vec_in : cause_arr) return int_cause_arr is
-    variable vec_out : int_cause_arr(0 to vec_in'high);
+  -- Initializes a vector where the index represents the interrupt cause
+  -- and its value the default priority.
+  function set_cause2prio(length : integer) return int_cause_arr is
+    -- Non-constant
+    variable vec : int_cause_arr(0 to length - 1) := (others => (others => '1'));
   begin
-    for i in 0 to 9 loop
-      vec_out(cause2int(vec_in(i))) := u2slv(i, int_cause_type'length);
+    for i in cause_prio'range loop
+      if cause_prio(i) /= IRQ_UNUSED then
+        vec(cause2int(cause_prio(i))) := u2vec(i, vec(0));
+      end if;
     end loop;
-    return vec_out;
+
+    return vec;
+  end;
+
+  constant int_cause2prio : int_cause_arr(0 to 31) := set_cause2prio(32);
+
+
+  -- Create full-size value from (V)S/MISELECT
+  function selector2wordx(v : select_t) return wordx is
+    -- Non-constant
+    variable ret : wordx := zerox;
+  begin
+    ret(ret'high)    := v.custom;
+    ret(v.sel'range) := std_logic_vector(v.sel);
+
+    return ret;
+  end;
+
+  -- Create (V)S/MISELECT selector from full-size value
+  function wordx2selector(v : wordx) return select_t is
+    -- Non-constant
+    variable ret : select_t;
+  begin
+    ret.custom := get_hi(v);
+    ret.sel    := get_lo(v, ret.sel'length);
+
+    return ret;
+  end;
+
+  function is_custom(v : select_t) return boolean is
+  begin
+    return v.custom = '1';
   end;
 
   -- Determines when the accessed address of the guest interrupt file is illegal and an exception must be rised
-  function GintFile_addrExcp(addr : std_logic_vector; imsic : integer; is_rv64 : boolean) return std_logic is
+  -- Assumes sel.custom is '0'.
+  function GintFile_addrExcp(sel : select_t; imsic : integer; is_rv64 : boolean) return std_logic is
   begin
     -- Raise virtual instruction exception when:
     -- * Trying to access inaccessible registers (0x00-0x6F, bigger than 0xFF)
     -- * XLEN=64 and trying to access IMSIC odd registers
     -- * IMSIC is not implemented and trying to access IMSIC registers
-    if unsigned(addr) > 16#FF# or                  -- Access inaccessible registers
-       unsigned(addr(7 downto 4)) < 16#7# or       -- Access inaccessible registers
-       (is_rv64 and addr(0) = '1') or              -- XLEN = 64 and access odd register
-       (imsic = 0 and                              -- IMSIC not implemented and access IMSIC regisers
-        unsigned(addr(7 downto 4)) > 16#6#) then
-          return '1';
+    if u2i(sel.sel) > 16#FF#          or  -- Access inaccessible registers
+       u2i(sel.sel(7 downto 4)) < 7   or  -- Access inaccessible registers
+       (is_rv64 and sel.sel(0) = '1') or  -- XLEN = 64 and access odd register
+       (imsic = 0 and                     -- IMSIC not implemented and access IMSIC regisers
+        u2i(sel.sel(7 downto 4)) > 6) then
+      return '1';
     else
-          return '0';
+      return '0';
     end if;
   end;
 
   -- Determines when the accessed address of the interrupt file is illegal and an exception must be rised
-  function intFile_addrExcp(addr : std_logic_vector; imsic : integer; is_rv64 : boolean) return std_logic is
+  -- Assumes sel.custom is '0'.
+  function intFile_addrExcp(sel : select_t; imsic : integer; is_rv64 : boolean) return std_logic is
   begin
     -- Raise illegal instruction exception when:
     -- * Trying to access reserved registers (0x00-0x2F, 0x40-0x6F)
     -- * XLEN=64 and trying to access IMSIC odd registers
     -- * XLEN=64 and trying to access major interrupt priorities odd registers
     -- * IMSIC is not implemented and trying to access IMSIC registers
-    if unsigned(addr) > 16#FF# or                  -- Access reserved registers
-       unsigned(addr(7 downto 4)) < 16#3# or       -- Access reserved registers
-       (unsigned(addr(7 downto 4)) > 16#3# and     -- Access reserved registers
-       unsigned(addr(7 downto 4)) < 16#7#) or
-       (is_rv64 and addr(0) = '1') or              -- XLEN = 64 and access odd register
-       (imsic = 0 and                              -- IMSIC not implemented and access IMSIC regisers
-       unsigned(addr(7 downto 4)) > 16#6#) then
-        return '1';
+    if u2i(sel.sel) > 16#FF#           or    -- Access reserved registers
+       u2i(sel.sel(7 downto 4)) < 3    or    -- Access reserved registers
+       (u2i(sel.sel(7 downto 4)) > 3 and     -- Access reserved registers
+        u2i(sel.sel(7 downto 4)) < 7)  or
+       (is_rv64 and sel.sel(0) = '1')  or    -- XLEN = 64 and access odd register
+       (imsic = 0 and                        -- IMSIC not implemented and access IMSIC regisers
+        u2i(sel.sel(7 downto 4)) > 6) then
+      return '1';
     else
-        return '0';
+      return '0';
     end if;
   end;
 
@@ -6366,6 +6846,19 @@ package body nvsupport is
     return mask;
   end;
 
+  -- Return mask for etrigger (tdata2)
+  function etrigger_mask(h_en : boolean) return wordx is
+    -- Non-constant
+    variable mask : wordx := CSR_ETRIGGER_MASK;
+  begin
+    if h_en then
+      mask := mask or CSR_H_ETRIGGER_MASK;
+    end if;
+
+    return mask;
+  end;
+
+
   -- Return hstatus as a XLEN bit data from the record type
   function to_hstatus(status : csr_hstatus_type) return wordx is
     -- Non-constant
@@ -6380,7 +6873,7 @@ package body nvsupport is
     return hstatus(wordx'range);
   end;
 
-  -- Return mstatus as a record type from an XLEN bit data
+  -- Return hstatus as a record type from an XLEN bit data
   function to_hstatus(wdata : wordx) return csr_hstatus_type is
     -- Non-constant
     variable hstatus : csr_hstatus_type;
@@ -6475,8 +6968,8 @@ package body nvsupport is
   begin
 
     if XLEN = 64 then
-      mstatus.mpv  := wdata(39*(XLEN/64));
-      mstatus.gva  := wdata(38*(XLEN/64));
+      mstatus.mpv  := wdata(39 * (XLEN / 64));
+      mstatus.gva  := wdata(38 * (XLEN / 64));
     end if;
     mstatus.mbe    := '0';
     mstatus.sbe    := '0';
@@ -6552,18 +7045,18 @@ package body nvsupport is
   begin
 
     -- Keep the values for the mstatus fields
-    sstatus        := mstatus;
+    sstatus         := mstatus;
 
-    sstatus.uxl    := "10";
-    sstatus.mxr    := wdata(19);
-    sstatus.sum    := wdata(18);
-    sstatus.xs     := "00";
-    sstatus.fs     := wdata(14 downto 13);
-    sstatus.spp    := wdata(8);
-    sstatus.spie   := wdata(5);
-    sstatus.upie   := wdata(4);
-    sstatus.sie    := wdata(1);
-    sstatus.uie    := wdata(0);
+    sstatus.uxl     := "10";
+    sstatus.mxr     := wdata(19);
+    sstatus.sum     := wdata(18);
+    sstatus.xs      := "00";
+    sstatus.fs      := wdata(14 downto 13);
+    sstatus.spp     := wdata(8);
+    sstatus.spie    := wdata(5);
+    sstatus.upie    := wdata(4);
+    sstatus.sie     := wdata(1);
+    sstatus.uie     := wdata(0);
 
     return sstatus;
   end;
@@ -6651,6 +7144,7 @@ package body nvsupport is
     xmstateen0.iselect  := mstateen0.iselect  and mask.iselect;
     xmstateen0.aia      := mstateen0.aia      and mask.aia;
     xmstateen0.imsic    := mstateen0.imsic    and mask.imsic;
+    xmstateen0.ctx      := mstateen0.ctx      and mask.ctx;
 
     return xmstateen0;
   end;
@@ -6674,6 +7168,7 @@ package body nvsupport is
     xmstateen0.iselect  := to_bit(ssaia) or to_bit(smaia);
     xmstateen0.aia      := to_bit(ssaia) or to_bit(smaia);
     xmstateen0.imsic    := to_bit(imsic);
+    xmstateen0.ctx      := '1';
 
     return xmstateen0;
   end;
@@ -6688,6 +7183,7 @@ package body nvsupport is
     xmstateen0(60) := mstateen0.iselect;
     xmstateen0(59) := mstateen0.aia;
     xmstateen0(58) := mstateen0.imsic;
+    xmstateen0(57) := mstateen0.ctx;
 
     return xmstateen0(wordx'range);
   end;
@@ -6704,6 +7200,7 @@ package body nvsupport is
       xmstateen0.iselect := wdata(60 * (XLEN / 64));
       xmstateen0.aia     := wdata(59 * (XLEN / 64));
       xmstateen0.imsic   := wdata(58 * (XLEN / 64));
+      xmstateen0.ctx     := wdata(57 * (XLEN / 64));
     end if;
     -- No bits in the low part are employed yet by the extension
 
@@ -6720,6 +7217,7 @@ package body nvsupport is
     xmstateen0h(28) := mstateen0.iselect;
     xmstateen0h(27) := mstateen0.aia;
     xmstateen0h(26) := mstateen0.imsic;
+    xmstateen0h(25) := mstateen0.ctx;
 
     return xmstateen0h(wordx'range);
   end;
@@ -6735,10 +7233,44 @@ package body nvsupport is
     xmstateen0.iselect := wdata(28);
     xmstateen0.aia     := wdata(27);
     xmstateen0.imsic   := wdata(26);
+    xmstateen0.ctx     := wdata(25);
 
     return xmstateen0;
   end;
 
+
+  -- Return the proper number of hcontext bits depending on the XLEN
+  function to_mhcontext(wdata : wordx; h_en : boolean) return csr_mhcontext_type is
+    variable xhcontext : csr_mhcontext_type := (others => '0');
+  begin
+    if XLEN = 64 then
+      if h_en then
+        xhcontext := wdata(13 downto 0);
+      else
+        xhcontext(12 downto 0) := wdata(12 downto 0);
+      end if;
+    else
+      if h_en then
+        xhcontext(6 downto 0) := wdata(6 downto 0);
+      else
+        xhcontext(5 downto 0) := wdata(5 downto 0);
+      end if;
+    end if;
+    return xhcontext;
+  end;
+
+  -- Return the proper number of scontext bits depending on the XLEN
+  function to_scontext(wdata : wordx) return csr_scontext_type is
+    variable xscontext : csr_scontext_type := (others => '0');
+    constant X64       : integer := b2i(XLEN = 64);
+  begin
+    if XLEN = 64 then
+      xscontext(xscontext'left*X64 downto 0) := wdata(33*X64 downto 0);
+    else
+      xscontext(15 downto 0) := wdata(15 downto 0);
+    end if;
+    return xscontext;
+  end;
 
   function envcfg_mask(envcfg : csr_envcfg_type; mask : csr_envcfg_type) return csr_envcfg_type is
     -- Non-constant
@@ -6788,10 +7320,10 @@ package body nvsupport is
       xenvcfg.stce   := wdata(63 * (XLEN / 64)) and mask.stce;
       xenvcfg.pbmte  := wdata(62 * (XLEN / 64)) and mask.pbmte;
     end if;
-    xenvcfg.cbze  := wdata(7) and mask.cbze;
-    xenvcfg.cbcfe := wdata(6) and mask.cbcfe;
-    xenvcfg.cbie  := wdata(5 downto 4) and mask.cbie;
-    xenvcfg.fiom  := wdata(0) and mask.fiom;
+    xenvcfg.cbze    := wdata(7) and mask.cbze;
+    xenvcfg.cbcfe   := wdata(6) and mask.cbcfe;
+    xenvcfg.cbie    := wdata(5 downto 4) and mask.cbie;
+    xenvcfg.fiom    := wdata(0) and mask.fiom;
 
     return xenvcfg;
   end;
@@ -6801,8 +7333,7 @@ package body nvsupport is
     -- Non-constant
     variable xenvcfgh : word64 := zerow64;
   begin
-    xenvcfgh(31 downto 27) := envcfg.stce & envcfg.pbmte & '0'
-                              ;
+    xenvcfgh(31 downto 29) := envcfg.stce & envcfg.pbmte & '0';
 
     return xenvcfgh(wordx'range);
   end;
@@ -6829,11 +7360,11 @@ package body nvsupport is
   end;
 
   function gen_envcfg_mmask(active : extension_type) return csr_envcfg_type is
-    variable sstc   : boolean := is_enabled(active, x_sstc);
-    variable pbmte  : boolean := false; --is_enabled(active, x_svpbmt);
-    variable zicboz : boolean := false; --is_enabled(active, x_zicboz);
-    variable zicbom : boolean := is_enabled(active, x_zicbom);
-    variable fiom   : boolean := false; --is_enabled(active, x_fiom);
+    variable sstc    : boolean := is_enabled(active, x_sstc);
+    variable pbmte   : boolean := false; --is_enabled(active, x_svpbmt);
+    variable zicboz  : boolean := false; --is_enabled(active, x_zicboz);
+    variable zicbom  : boolean := is_enabled(active, x_zicbom);
+    variable fiom    : boolean := false; --is_enabled(active, x_fiom);
     -- Non-constant
     variable xenvcfg : csr_envcfg_type := csr_envcfg_rst;
   begin
@@ -6848,9 +7379,9 @@ package body nvsupport is
   end;
 
   function gen_envcfg_smask(active : extension_type) return csr_envcfg_type is
-    variable zicboz : boolean := false; --is_enabled(active, x_zicboz);
-    variable zicbom : boolean := is_enabled(active, x_zicbom);
-    variable fiom   : boolean := false; --is_enabled(active, x_fiom);
+    variable zicboz  : boolean := false; --is_enabled(active, x_zicboz);
+    variable zicbom  : boolean := is_enabled(active, x_zicbom);
+    variable fiom    : boolean := false; --is_enabled(active, x_fiom);
     -- Non-constant
     variable xenvcfg : csr_envcfg_type := csr_envcfg_rst;
   begin
@@ -6876,11 +7407,11 @@ package body nvsupport is
   function to_mseccfg(data   : wordx;
                       seccfg : csr_seccfg_type) return csr_seccfg_type is
     -- Non-constant
-    variable xseccfg       : csr_seccfg_type := seccfg;
+    variable xseccfg : csr_seccfg_type := seccfg;
   begin
-    xseccfg.mml    := data(0);
-    xseccfg.mmwp   := data(1);
-    xseccfg.rlb    := data(2);
+    xseccfg.mml   := data(0);
+    xseccfg.mmwp  := data(1);
+    xseccfg.rlb   := data(2);
 
     return xseccfg;
   end;
@@ -6906,7 +7437,7 @@ package body nvsupport is
   begin
     data := cconfig;
     if XLEN = 64 then
-      data(data'high downto data'length/2) := to_capabilityh(fpuconf, cconfig);
+      data(data'high downto data'length / 2) := to_capabilityh(fpuconf, cconfig);
     end if;
 
     return data(wordx'range);
@@ -6924,9 +7455,9 @@ package body nvsupport is
       hpmevent.uinh     := wdata(60);
       hpmevent.vsinh    := wdata(59);
       hpmevent.vuinh    := wdata(58);
+      hpmevent.class    := wdata(56 downto 57-log2(MHPEVENT_C));
+      hpmevent.events   := wdata(MHPEVENT_EC-1 downto 0);
     end if;
-    hpmevent.event      := wdata(hpmevent.event'range);
-
     return hpmevent;
   end;
 
@@ -6941,6 +7472,7 @@ package body nvsupport is
     hpmevent.uinh     := wdata(60 - 32);
     hpmevent.vsinh    := wdata(59 - 32);
     hpmevent.vuinh    := wdata(58 - 32);
+    --todo
 
     return hpmevent;
   end;
@@ -6956,8 +7488,8 @@ package body nvsupport is
     rdata(60) := hpmevent.uinh;
     rdata(59) := hpmevent.vsinh;
     rdata(58) := hpmevent.vuinh;
-    rdata(hpmevent.event'range) := hpmevent.event;
-
+    rdata(56 downto 57-log2(MHPEVENT_C)) := hpmevent.class;
+    rdata(MHPEVENT_EC-1 downto 0) := hpmevent.events;
     return rdata(wordx'range);
   end;
 
@@ -6972,6 +7504,7 @@ package body nvsupport is
     rdata(60 - 32) := hpmevent.uinh;
     rdata(59 - 32) := hpmevent.vsinh;
     rdata(58 - 32) := hpmevent.vuinh;
+    --todo
 
     return rdata(wordx'range);
   end;
@@ -6979,6 +7512,56 @@ package body nvsupport is
   function hpmevent(event : integer) return hpmevent_type is
   begin
     return to_hpmevent(u2vec(event, XLEN), hpmevent_none);
+  end;
+
+  -- OR reduce a std_logic_vector
+  function or_reduce(input : std_logic_vector) return std_logic is
+    variable output : std_logic;
+  begin
+    output := input(input'low);
+    for i in input'low + 1 to input'high loop
+      output := output or input(i);
+    end loop;
+
+    return output;
+  end;
+
+  -- Returns and event signal for an hpmcounter.
+  -- IF THE COUNTER SUPPORT MASKING, the N upper bits of hpmevent are
+  -- used to define the event class, the remaining bits are used as a
+  -- mask that selects (1) or ignores (0) the events within a given class
+  -- the output event is or reduction of any of the selected events
+  -- IF THE COUNTER DOESN'T SUPPORT MASKING it returns NO_EVENT if the mask has
+  -- more than one bit active
+
+  -- hpmevent: hpmevent register for our target counter
+  -- evt: Vector of input events
+  -- cnt: Index of the target counter (EG: 3 -> mphcounter3)
+  function filter_hpmevent(hpmevent : hpmevent_type; evt : evt_type; cnt : integer) return std_logic is
+    -- Non-constant
+    variable rdata  : std_logic := '1';
+    variable filter : std_logic := '0';  -- Check if filtering is enabled
+    variable class  : integer;
+    variable mask   : std_logic_vector (MHPEVENT_EC-1 downto 0);
+  begin
+    class  := u2i(hpmevent.class);
+    mask   := hpmevent.events;
+    -- Check if target counter has filter events enabled
+    filter := MHPCOUNT_FIL(cnt);
+
+    if filter = '1' then
+      --rdata := or (evt(class) and mask);
+      rdata := or_reduce((evt(class) and mask));
+    else
+      -- Check if mask is a power of 2 and not 0
+       if (single_1(mask)) then
+         rdata := evt(class)(u2i(mask));
+       else
+         rdata := '0';
+       end if;
+    end if;
+
+    return rdata;
   end;
 
   -- Incoming pmpaddr has at least two zeros at the top.
@@ -6997,9 +7580,11 @@ package body nvsupport is
     variable high  : pmpaddr_type;
   begin
     -- At startup there may be X's.
+-- pragma translate_off
     assert is_x(pmpaddr) or get_hi(pmpaddr, 2) = "00"
       report "Bad pmpaddr for precalc"
       severity failure;
+-- pragma translate_on
     if a = PMP_OFF or (pmp_no_tor = 1 and a = PMP_TOR) then
       valid := '0';
     end if;
@@ -7047,33 +7632,19 @@ package body nvsupport is
   end;
 
   procedure pmp_precalc(pmpaddr     : in  pmpaddr_vec_type;
-                        pmpcfg0     : in  word64;
-                        pmpcfg2     : in  word64;
+                        pmpcfg_in   : in  pmpcfg_vec_type;
                         precalc     : out pmp_precalc_vec;
                         pmp_entries : integer;
                         pmp_no_tor  : integer;
                         pmp_g       : integer;
                         msb         : integer := 31
                        ) is
-    function pmpcfg(cfg0 : word64; cfg2 : word64; n : integer range 0 to 15) return word8 is
-      -- Non-constant
-      variable cfg : word8;
-    begin
-      if n < 8 then
-        cfg := cfg0(n * 8 + 7 downto n * 8);
-      else
-        cfg := cfg2((n - 8) * 8 + 7 downto (n - 8) * 8);
-      end if;
-
-      return cfg;
-    end;
-
     -- Non-constant
     variable a          : pmpcfg_access_type;
     variable pmpaddr_m1 : pmpaddr_type;
   begin
     for i in 0 to pmp_entries - 1 loop
-      a := pmpcfg(pmpcfg0, pmpcfg2, i)(4 downto 3);
+      a := pmpcfg(pmp_entries, pmpcfg_in, i)(4 downto 3);
 
       -- Bottom address for PMP_TOR.
       pmpaddr_m1   := pmpaddrzero;
@@ -7089,8 +7660,7 @@ package body nvsupport is
   -- Note that this does not support pmp_g = 0!
   procedure pmp_unit(prv_in     : in  priv_lvl_type;
                      precalc    : in  pmp_precalc_vec;
-                     pmpcfg0_in : in  word64;
-                     pmpcfg2_in : in  word64;
+                     pmpcfg_in  : in  pmpcfg_vec_type;
                      mmwp       : in  std_ulogic;
                      mml        : in  std_ulogic;
                      mprv_in    : in  std_ulogic;
@@ -7150,11 +7720,7 @@ package body nvsupport is
     for i in 0 to entries - 1 loop
 
       -- Generate larwx signals.
-      if i < 8 then
-        cfg  := pmpcfg0_in(i * 8 + 7 downto i * 8);
-      else
-        cfg  := pmpcfg2_in((i - 8) * 8 + 7 downto (i - 8) * 8);
-      end if;
+      cfg    := pmpcfg_in(i);
       l(i)   := cfg(7);
       a(i)   := cfg(4 downto 3);
       x(i)   := cfg(2);
@@ -7341,8 +7907,7 @@ package body nvsupport is
   -- Specialized for MMU use.
   -- Alignment fixed to 4 kByte.
   procedure pmp_mmuu(precalc    : in  pmp_precalc_vec;
-                     pmpcfg0_in : in  word64;
-                     pmpcfg2_in : in  word64;
+                     pmpcfg_in  : in  pmpcfg_vec_type;
                      mml        : in  std_ulogic;
                      addr_low   : in  std_logic_vector;
                      addr_mask  : in  std_logic_vector;
@@ -7393,11 +7958,7 @@ package body nvsupport is
     for i in precalc'range loop
 
       -- Generate larwx signals.
-      if i < 8 then
-        cfg := pmpcfg0_in(i * 8 + 7 downto i * 8);
-      else
-        cfg := pmpcfg2_in((i - 8) * 8 + 7 downto (i - 8) * 8);
-      end if;
+      cfg  := pmpcfg_in(i);
       l(i) := cfg(7);
       a(i) := cfg(4 downto 3);
       x(i) := cfg(2);
@@ -7482,9 +8043,8 @@ package body nvsupport is
           res := op1_in xor op2_in;
         when "10" =>
           res := op1_in or op2_in;
-        when "11" =>
-          res := op1_in and op2_in;
         when others =>
+          res := op1_in and op2_in;
       end case;
     else
       if (less xor ctrl_in(0)) = '1' then
@@ -7545,10 +8105,19 @@ package body nvsupport is
 
     -- Generate Jump Signal
     if valid_in = '1' and v_fusel_eq(fusel_in, JALR) and flush_in = '0' then
+      if ras_in.hit = '0' then
         jump     := '1';
+      end if;
     end if;
 
     mem_jumpt := '0';
+    -- Jump RAS mispredictions have to be propagated to the instruction cache
+    -- in the memory stage to avoid comparator on the select lines.
+    if valid_in = '1' and v_fusel_eq(fusel_in, JALR) and flush_in = '0' then
+      if ras_in.hit = '1' and ras_in.rdata /= target(ras_in.rdata'range) then
+        mem_jumpt := '1';
+      end if;
+    end if;
 
     -- Setting the least-significat bit to zero.
     target(0)    := '0';
@@ -7754,5 +8323,162 @@ package body nvsupport is
     hit_out    := hit_in;
   end;
 
+  -- RAS Update Procedure
+  procedure ras_update(speculative_in : in  integer;
+                       inst_in        : in  word;
+                       fusel_in       : in  fuseltype;
+                       valid_in       : in  std_ulogic;
+                       xc_in          : in  std_ulogic;
+                       rdv_in         : in  std_ulogic;
+                       wdata_in       : in  std_logic_vector;  -- pctype
+                       rasi_in        : in  nv_ras_in_type;
+                       hold_in        : in  std_ulogic;
+                       rstate         : in  core_state;
+                       ras_out        : out nv_ras_in_type) is
+    variable rd       : reg_t          := rd(inst_in);
+    variable rs1      : reg_t          := rs1(inst_in);
+    -- Non-constant
+    variable ras      : nv_ras_in_type := nv_ras_in_none;
+  begin
+    -- Return-address prediction stacks are a common feature of high-performance instruction-fetch
+    -- units, but require accurate detection of instructions used for procedure calls and returns
+    -- to be effective. For RISC-V, hints as to the instructions’ usage are encoded implicitly via
+    -- the register numbers used. A JAL instruction should push the return address onto a
+    -- return-address stack (RAS) only when rd=x1/x5. JALR instructions should push/pop a RAS
+    -- as shown in the Table 2.1.
+
+    -- *       *       *          *              *
+    -- |   rd  |  rs1  |  rs1=rd  |  RAS Action  |
+    -- ------------------------------------------
+    -- | !link | !link |     -    |     None     |
+    -- | !link |  link |     -    |     Pop      |
+    -- |  link | !link |     -    |     Push     |
+    -- |  link |  link |     0    |  Pop, Push   |
+    -- |  link |  link |     1    |     Push     |
+
+    -- Update RAS on jal and jalr instruction.
+    ras.wdata            := pc2xlen(wdata_in);
+
+    if v_fusel_eq(fusel_in, FLOW) and speculative_in = 1 then
+      if v_fusel_eq(fusel_in, JAL) then
+        -- On JAL instruction we should request a push.
+        if rdv_in = '1' and (rd = GPR_RA or rd = GPR_T0) then
+          ras.push       := '1';
+        end if;
+      else -- JALR
+        -- Please follow table above.
+        case rs1 is
+          when GPR_RA | GPR_T0 =>
+            if rd = rs1 then
+              ras.push   := '1';
+            else
+              ras.pop    := '1';
+              if rdv_in = '1' and (rd = GPR_RA or rd = GPR_T0) then
+                ras.push := '1';
+              end if;
+            end if;
+          when others =>
+            if rdv_in = '1' and (rd = GPR_RA or rd = GPR_T0) then
+              ras.push   := '1';
+            end if;
+        end case; -- rs1
+      end if;
+    end if;
+
+    -- Handle the speculative logic for RAS.
+    -- In Decode Stage we update the RAS anyway.
+    -- Then in Write Back Stage we check if that instruction
+    -- is valid and reverse the operation in case it is not.
+
+    if speculative_in = 1 then
+      if valid_in = '0' or hold_in = '1' or xc_in = '1' then
+        ras.push    := '0';
+        ras.pop     := '0';
+      end if;
+    else
+      if valid_in = '0' then
+        if rasi_in.push = '1' then
+          -- Reverse Push operation by issuing a pop
+          ras.pop   := '1';
+        elsif rasi_in.pop = '1' then
+          -- Reverse Pop operation by issuing a push
+          ras.push  := '1';
+          ras.wdata := rasi_in.wdata;
+        end if;
+      end if;
+    end if;
+
+    -- For the write back ras update, hold_in encode the flush signal
+    -- drived from the wb_fence_i instruction.
+    if speculative_in = 0 then
+      ras.flush     := hold_in;
+    end if;
+
+    if rstate /= run then
+      ras.pop  := '0';
+      ras.push := '0';
+    end if;
+
+    ras_out         := ras;
+  end;
+
+  -- RAS Resolve Logic
+  procedure ras_resolve(active    : in  extension_type;
+                        inst_in   : in  word;
+                        fusel_in  : in  fuseltype;
+                        valid_in  : in  std_ulogic;
+                        xc_in     : in  std_ulogic;
+                        rdv_in    : in  std_ulogic;
+                        rs1_in    : in  reg_t;
+                        ras_in    : in  nv_ras_out_type;
+                        ras_out   : out nv_ras_out_type;
+                        xc_out    : out std_ulogic;
+                        cause_out : out cause_type;
+                        tval_out  : out wordx) is
+    variable rd       : reg_t           := rd(inst_in);
+    variable tval     : wordx           := ras_in.rdata;
+    -- Non-constant
+    variable ras      : nv_ras_out_type := nv_ras_out_none;
+    variable xc       : std_ulogic      := '0';
+  begin
+    -- Return-address prediction stacks are a common feature of high-performance instruction-fetch
+    -- units, but require accurate detection of instructions used for procedure calls and returns
+    -- to be effective. For RISC-V, hints as to the instructions’ usage are encoded implicitly via
+    -- the register numbers used. A JAL instruction should push the return address onto a
+    -- return-address stack (RAS) only when rd=x1/x5. JALR instructions should push/pop a RAS
+    -- as shown in the Table 2.1.
+
+    -- *       *       *          *              *
+    -- |   rd  |  rs1  |  rs1=rd  |  RAS Action  |
+    -- ------------------------------------------
+    -- | !link | !link |     -    |     None     |
+    -- | !link |  link |     -    |     Pop      |
+    -- |  link | !link |     -    |     Push     |
+    -- |  link |  link |     0    |  Pop, Push   |
+    -- |  link |  link |     1    |     Push     |
+
+    ras.rdata := ras_in.rdata;
+
+    -- Evaluate if we have to get the value from the RAS.
+    if valid_in = '1' and xc_in = '0' and v_fusel_eq(fusel_in, JALR) then
+      if ras_in.hit = '1' then
+        if rs1_in = GPR_T0 or rs1_in = GPR_RA then -- link registers
+          if not (rdv_in = '1' and rd = rs1_in) then -- not if equal
+            ras.hit := '1';
+          end if;
+        end if;
+      end if;
+    end if;
+
+    -- Generate Exception
+    if ras.hit = '1' and inst_addr_misaligned(active, ras_in.rdata) then
+      xc      := '1';
+    end if;
+
+    ras_out   := ras;
+    xc_out    := xc;
+    cause_out := XC_INST_ADDR_MISALIGNED;  -- Only valid when xc_out.
+    tval_out  := tval;
+  end;
 
 end;

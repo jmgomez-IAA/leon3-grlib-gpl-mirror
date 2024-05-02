@@ -53,6 +53,7 @@ entity noelvcpu is
     );
   port (
     clk    : in  std_ulogic;
+    gclk   : in  std_ulogic;
     rstn   : in  std_ulogic;
     ahbi   : in  ahb_mst_in_type;
     ahbo   : out ahb_mst_out_type;
@@ -66,7 +67,8 @@ entity noelvcpu is
     dbgi   : in  nv_debug_in_type;
     dbgo   : out nv_debug_out_type;
     eto    : out nv_etrace_out_type;
-    cnt    : out nv_counter_out_type
+    cnt    : out nv_counter_out_type;
+    pwrd   : out std_ulogic     
 
     );
 end;
@@ -218,11 +220,14 @@ architecture hier of noelvcpu is
     ext_smaia     => 0,
     ext_ssaia     => 0,
     ext_smstateen => 0,
+    ext_smrnmi    => 0,
     ext_smepmp    => 0,
     imsic         => 0,
     ext_zicbom    => 0,
     ext_zicond    => 0,
-    ext_zimops    => 0,
+    ext_zimop     => 0,
+    ext_zcmop     => 0,
+    ext_svinval   => 0,
     ext_zfa       => 0,
     ext_zfh       => 0,
     ext_zfhmin    => 0,
@@ -256,6 +261,7 @@ architecture hier of noelvcpu is
     div_small     => 0,
     late_branch   => 0,
     late_alu      => 0,
+    ras           => 0,
     bhtentries    => 32,
     bhtlength     => 2,
     predictor     => 0,
@@ -264,6 +270,10 @@ architecture hier of noelvcpu is
 
   type cfg_type is array (natural range <>) of nv_cpu_cfg_type;
 
+  -- Set to one to disable extensions not supported in RISCV-DV
+  constant RISCV_DV : integer := 0;
+  constant RDV_SUPPORT : integer := 1 - RISCV_DV;
+
   constant cfg_c : cfg_type(0 to 7) := (
     -- HP
     0 => (
@@ -271,7 +281,7 @@ architecture hier of noelvcpu is
       ext_m         => 1,
       ext_a         => 1,
       ext_c         => 1,
-      ext_h         => 1,
+      ext_h         => 1*RDV_SUPPORT,
       ext_zcb       => 1,
       ext_zba       => 1,
       ext_zbb       => 1,
@@ -280,17 +290,20 @@ architecture hier of noelvcpu is
       ext_zbkb      => 1,
       ext_zbkc      => 1,
       ext_zbkx      => 1,
-      ext_sscofpmf  => 1,
-      ext_sstc      => 1,
-      ext_smaia     => 1*AIA_SUPPORT,
-      ext_ssaia     => 1*AIA_SUPPORT,
-      ext_smstateen => 1,
+      ext_sscofpmf  => 1*RDV_SUPPORT,
+      ext_sstc      => 1*RDV_SUPPORT,
+      ext_smaia     => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_ssaia     => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_smstateen => 1*RDV_SUPPORT,
+      ext_smrnmi    => 1*SMRNMI_SUPPORT*RDV_SUPPORT,
       ext_smepmp    => 1,
-      imsic         => 1*AIA_SUPPORT,
-      ext_zicbom    => 1,
-      ext_zicond    => 1,
-      ext_zimops    => 1,
-      ext_zfa       => 1,
+      imsic         => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_zicbom    => 1*RDV_SUPPORT,
+      ext_zicond    => 1*RDV_SUPPORT,
+      ext_zimop     => 1*RDV_SUPPORT,
+      ext_zcmop     => 1*RDV_SUPPORT,
+      ext_svinval   => 1*RDV_SUPPORT,
+      ext_zfa       => 1*RDV_SUPPORT,
       ext_zfh       => 1,
       ext_zfhmin    => 1,
       ext_zfbfmin   => 0,
@@ -306,7 +319,7 @@ architecture hier of noelvcpu is
       perf_evts     => 128,
       perf_bits     => 32,
       tbuf          => 4,
-      trigger       => 32*0 + 16*1 + 2,
+      trigger       => 32*2 + 16*1 + 2,
       icen          => 1,
       iways         => 4,
       iwaysize      => 4,
@@ -323,6 +336,7 @@ architecture hier of noelvcpu is
       div_small     => 0,
       late_branch   => 1,
       late_alu      => 1,
+      ras           => 2,
       bhtentries    => 128,
 --      bhtentries    => 512,
       bhtlength     => 5,
@@ -338,7 +352,7 @@ architecture hier of noelvcpu is
       ext_m         => 1,
       ext_a         => 1,
       ext_c         => 1,
-      ext_h         => 1,
+      ext_h         => 1*RDV_SUPPORT,
       ext_zcb       => 1,
       ext_zba       => 1,
       ext_zbb       => 1,
@@ -347,17 +361,20 @@ architecture hier of noelvcpu is
       ext_zbkb      => 1,
       ext_zbkc      => 1,
       ext_zbkx      => 1,
-      ext_sscofpmf  => 1,
-      ext_sstc      => 1,
-      ext_smaia     => 1*AIA_SUPPORT,
-      ext_ssaia     => 1*AIA_SUPPORT,
-      ext_smstateen => 1,
+      ext_sscofpmf  => 1*RDV_SUPPORT,
+      ext_sstc      => 1*RDV_SUPPORT,
+      ext_smaia     => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_ssaia     => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_smstateen => 1*RDV_SUPPORT,
+      ext_smrnmi    => 1*SMRNMI_SUPPORT*RDV_SUPPORT,
       ext_smepmp    => 1,
-      imsic         => 1*AIA_SUPPORT,
-      ext_zicbom    => 1,
-      ext_zicond    => 1,
-      ext_zimops    => 1,
-      ext_zfa       => 1,
+      imsic         => 1*AIA_SUPPORT*RDV_SUPPORT,
+      ext_zicbom    => 1*RDV_SUPPORT,
+      ext_zicond    => 1*RDV_SUPPORT,
+      ext_zimop     => 1*RDV_SUPPORT,
+      ext_zcmop     => 1*RDV_SUPPORT,
+      ext_svinval   => 1*RDV_SUPPORT,
+      ext_zfa       => 1*RDV_SUPPORT,
       ext_zfh       => 1,
       ext_zfhmin    => 1,
       ext_zfbfmin   => 0,
@@ -373,7 +390,7 @@ architecture hier of noelvcpu is
       perf_evts     => 128,
       perf_bits     => 32,
       tbuf          => 4,
-      trigger       => 32*0 + 16*1 + 2,
+      trigger       => 32*2 + 16*1 + 2,
       icen          => 1,
       iways         => 4,
       iwaysize      => 4,
@@ -390,6 +407,7 @@ architecture hier of noelvcpu is
       div_small     => 0,
       late_branch   => 1,
       late_alu      => 1,
+      ras           => 2,
       bhtentries    => 128,
       bhtlength     => 5,
       predictor     => 2,
@@ -410,17 +428,20 @@ architecture hier of noelvcpu is
       ext_zbkb      => 0,
       ext_zbkc      => 0,
       ext_zbkx      => 0,
-      ext_sscofpmf  => 1,
-      ext_sstc      => 2,
+      ext_sscofpmf  => 1*RDV_SUPPORT,
+      ext_sstc      => 2*RDV_SUPPORT,
       ext_smaia     => 0,
       ext_ssaia     => 0,
       ext_smstateen => 0,
+      ext_smrnmi    => 0,
       ext_smepmp    => 1,
       imsic         => 0,
-      ext_zicbom    => 1,
-      ext_zicond    => 1,
-      ext_zimops    => 1,
-      ext_zfa       => 1,
+      ext_zicbom    => 1*RDV_SUPPORT,
+      ext_zicond    => 1*RDV_SUPPORT,
+      ext_zimop     => 1*RDV_SUPPORT,
+      ext_zcmop     => 1*RDV_SUPPORT,
+      ext_svinval   => 1*RDV_SUPPORT,
+      ext_zfa       => 1*RDV_SUPPORT,
       ext_zfh       => 1,
       ext_zfhmin    => 1,
       ext_zfbfmin   => 0,
@@ -453,6 +474,7 @@ architecture hier of noelvcpu is
       div_small     => 0,
       late_branch   => 1,
       late_alu      => 1,
+      ras           => 0,
       bhtentries    => 64,
       bhtlength     => 5,
       predictor     => 2,
@@ -478,11 +500,14 @@ architecture hier of noelvcpu is
       ext_smaia     => 0,
       ext_ssaia     => 0,
       ext_smstateen => 0,
+      ext_smrnmi    => 0,
       ext_smepmp    => 1,
       imsic         => 0,
       ext_zicbom    => 0,
-      ext_zicond    => 0,
-      ext_zimops    => 1,
+      ext_zicond    => 1,
+      ext_zimop     => 1*RDV_SUPPORT,
+      ext_zcmop     => 1*RDV_SUPPORT,
+      ext_svinval   => 0,
       ext_zfa       => 1,
       ext_zfh       => 0,
       ext_zfhmin    => 1,
@@ -516,6 +541,7 @@ architecture hier of noelvcpu is
       div_small     => 1,
       late_branch   => 1,
       late_alu      => 1,
+      ras           => 0,
       bhtentries    => 64,
       bhtlength     => 5,
       predictor     => 2,
@@ -541,11 +567,14 @@ architecture hier of noelvcpu is
       ext_smaia     => 0,
       ext_ssaia     => 0,
       ext_smstateen => 0,
+      ext_smrnmi    => 0,
       ext_smepmp    => 1,
       imsic         => 0,
       ext_zicbom    => 0,
       ext_zicond    => 0,
-      ext_zimops    => 1,
+      ext_zimop     => 1*RDV_SUPPORT,
+      ext_zcmop     => 1*RDV_SUPPORT,
+      ext_svinval   => 0,
       ext_zfa       => 0,
       ext_zfh       => 0,
       ext_zfhmin    => 0,
@@ -579,6 +608,7 @@ architecture hier of noelvcpu is
       div_small     => 1,
       late_branch   => 0,
       late_alu      => 0,
+      ras           => 0,
       bhtentries    => 64,
       bhtlength     => 5,
       predictor     => 2,
@@ -626,8 +656,12 @@ begin
       vmidlen         => cfg_c(c.typ).vmidlen,
       -- Interrupts
       imsic           => cfg_c(c.typ).imsic,
+      -- RNMI
+      rnmi_iaddr      => 16#40010#,
+      rnmi_xaddr      => 16#40011#,
       -- Extensions
-      ext_noelv       => 1,
+      ext_noelv       => 1*RDV_SUPPORT,
+      ext_noelvalu    => 1*RDV_SUPPORT,
       ext_m           => cfg_c(c.typ).ext_m,
       ext_a           => cfg_c(c.typ).ext_a,
       ext_c           => cfg_c(c.typ).ext_c,
@@ -645,10 +679,13 @@ begin
       ext_smaia       => cfg_c(c.typ).ext_smaia,
       ext_ssaia       => cfg_c(c.typ).ext_ssaia,
       ext_smstateen   => cfg_c(c.typ).ext_smstateen,
+      ext_smrnmi      => cfg_c(c.typ).ext_smrnmi,
       ext_smepmp      => cfg_c(c.typ).ext_smepmp,
       ext_zicbom      => cfg_c(c.typ).ext_zicbom,
       ext_zicond      => cfg_c(c.typ).ext_zicond,
-      ext_zimops      => cfg_c(c.typ).ext_zimops,
+      ext_zimop       => cfg_c(c.typ).ext_zimop,
+      ext_zcmop       => cfg_c(c.typ).ext_zcmop,
+      ext_svinval     => cfg_c(c.typ).ext_svinval,
       ext_zfa         => cfg_c(c.typ).ext_zfa,
       ext_zfh         => cfg_c(c.typ).ext_zfh,
       ext_zfhmin      => cfg_c(c.typ).ext_zfhmin,
@@ -660,13 +697,13 @@ begin
       -- Advanced Features
       late_branch     => cfg_c(c.typ).late_branch,
       late_alu        => cfg_c(c.typ).late_alu,
+      ras             => cfg_c(c.typ).ras,
       -- Core
       cached          => cached,
       wbmask          => wbmask,
       busw            => busw,
       cmemconf        => cmemconf,
       rfconf          => rfconf,
---      rfconf          => 1,  -- qqq Use this for DC
       tcmconf         => tcmconf,
       mulconf         => mulconf,
       tbuf            => cfg_c(c.typ).tbuf,
@@ -691,7 +728,7 @@ begin
       )
     port map (
       clk             => clk,
-      gclk            => clk,
+      gclk            => gclk,
       rstn            => rstn,
       ahbi            => ahbi,
       ahbo            => ahbo,
@@ -705,6 +742,7 @@ begin
       dbgi            => dbgi,
       dbgo            => dbgo,
       eto             => eto,
-      cnt             => cnt
+      cnt             => cnt,
+      pwrd            => pwrd
       );
 end;
